@@ -6,6 +6,10 @@
 extern "C" {
 #endif
 
+#ifndef FALSE
+#define FALSE 0
+#define TRUE (!FALSE)
+#endif
 
 #include <inttypes.h>
 #include <endian.h>

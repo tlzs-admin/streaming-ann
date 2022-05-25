@@ -2,8 +2,21 @@
 
 TARGET=${1-"darknet"}
 
-DARKNET_CFLAGS=" -Ithird-party/darknet/include -I. "
-DARKNET_LIBS="third-party/darknet/libdarknet.a"
+DARKNET_CFLAGS=" -I/storage/git/darknet.yolov3/include -I. "
+DARKNET_LIBS="/storage/git/darknet.yolov3/libdarknet.a"
+
+if [ ! -e plugins ]; then
+       ln -s ../../../plugins ./
+fi 
+
+if [ ! -e include ]; then
+	ln -s ../../../include ./
+fi
+
+if [ ! -e utils ]; then
+	ln -s ../../../utils ./
+fi
+
 
 if [ -e /usr/local/cuda ] ; then
  DARKNET_CFLAGS+=" -DGPU -I/usr/local/cuda/include "

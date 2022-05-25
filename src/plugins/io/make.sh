@@ -6,6 +6,17 @@ TARGET=${1-"plugins-helpler"}
 TARGET=${TARGET/.[ch]/}
 TARGET=${TARGET/.so*/}
 
+if [ ! -e plugins ]; then
+       ln -s ../../../plugins ./
+fi       
+
+if [ ! -e include ]; then
+	ln -s ../../../include ./
+fi
+
+if [ ! -e utils ]; then
+	ln -s ../../../utils ./
+fi
 
 TARGETS=(
  "input-source"
