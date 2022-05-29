@@ -36,7 +36,14 @@ function build()
 				${DARKNET_CFLAGS} ${DARKNET_LIBS} \
 				-lm -lpthread -ljson-c -ljpeg -lpng -lcairo \
 				`pkg-config --cflags --libs gio-2.0 glib-2.0`
-		;;
+			;;
+		httpclient|ai-plugin_httpclient):
+			gcc -std=gnu99 -g -Wall -D_DEBUG -fPIC -shared -o plugins/libaiplugin-httpclient.so \
+				httpclient.c ai-plugin_httpclient.c -Iinclude -I. \
+				utils/*.c \
+				-lm -lpthread -ljson-c -ljpeg -lpng -lcairo -lcurl \
+				`pkg-config --cflags --libs gio-2.0 glib-2.0`
+			;;
 	*)
 		exit 1
 		;;
