@@ -1,0 +1,13 @@
+{
+  "ai-engine":{
+    "type":"ai-engine::httpclient",
+    "url":"http://127.0.0.1:9090/ai"
+  },
+  "shell":{
+    "colors":{
+        "default":"green",
+        "person":"yellow"
+    }
+  }
+}
+

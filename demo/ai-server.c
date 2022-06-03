@@ -88,7 +88,29 @@ void on_request_ai_engine(SoupServer * server, SoupMessage * msg, const char * p
 	
 	const char * content_type = soup_message_headers_get_content_type(msg->request_headers, NULL);
 	printf("content-type: %s\n", content_type);
-	if(!g_content_type_equals(content_type, "image/jpeg"))
+	gboolean uncertain = TRUE;
+	char * image_type = g_content_type_guess(NULL, 
+		(const unsigned char *)msg->request_body->data, 
+		msg->request_body->length, 
+		&uncertain);
+	if(uncertain || NULL == image_type) {
+		fprintf(stderr, "[ERROR]: invalid image format.\n");
+		soup_message_set_status(msg, SOUP_STATUS_BAD_REQUEST);
+		if(image_type) g_free(image_type);
+		return;
+	}
+	
+	debug_printf("content_type: %s, real_image_type: %s", 
+		content_type, image_type);
+		
+	gboolean is_jpeg = FALSE;
+	gboolean is_png = FALSE;
+	
+	is_jpeg = g_content_type_equals(image_type, "image/jpeg");
+	if(!is_jpeg) is_png = g_content_type_equals(image_type, "image/png");
+	g_free(image_type);
+	
+	if(!is_jpeg && !is_png)
 	{
 		soup_message_set_status(msg, SOUP_STATUS_BAD_REQUEST);
 		return;
@@ -96,10 +118,25 @@ void on_request_ai_engine(SoupServer * server, SoupMessage * msg, const char * p
 	
 	input_frame_t frame[1];
 	memset(frame, 0, sizeof(frame));
-	int rc = input_frame_set_jpeg(frame, 
-		(unsigned char *)msg->request_body->data, 
-		msg->request_body->length, NULL, 0);
-	assert(0 == rc);
+	int rc = 0;
+	
+	if(is_jpeg) {
+		rc = input_frame_set_jpeg(frame, 
+			(unsigned char *)msg->request_body->data, 
+			msg->request_body->length, NULL, 0);
+	}
+	else {
+		rc = input_frame_set_png(frame, 
+			(unsigned char *)msg->request_body->data, 
+			msg->request_body->length, NULL, 0);
+	}
+	
+	if(rc) {
+		fprintf(stderr, "[ERROR]: parse image file failed.\n");
+		input_frame_clear(frame);
+		soup_message_set_status(msg, SOUP_STATUS_BAD_REQUEST);
+		return;
+	}
 	
 	json_object * jresult = NULL;
 	

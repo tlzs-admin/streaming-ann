@@ -71,6 +71,7 @@ typedef struct global_param
 	struct shell_context * shell;
 	json_object * jconfig;
 	json_object * jsettings;
+	json_object * jinput;
 	
 	ssize_t count;
 	region_data_t regions[MAX_REGIONS];
@@ -162,6 +163,9 @@ static int parse_args(int argc, char ** argv, global_param_t * params)
 		}
 	}
 	
+	ok = json_object_object_get_ex(jconfig, "input", &params->jinput);
+	assert(ok && params->jinput);
+	
 	return 0;
 }
 
@@ -189,7 +193,9 @@ int main(int argc, char **argv)
 	shell_context_t * shell = shell_context_init(argc, argv, ctx);
 	
 	io_input_t * input = io_input_init(NULL, IO_PLUGIN_DEFAULT, shell);
-	input->init(input, ctx->jconfig);
+	
+	
+	input->init(input, ctx->jinput);
 	input->on_new_frame = on_new_frame;
 	input->run(input);
 	

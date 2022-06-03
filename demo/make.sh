@@ -33,7 +33,17 @@ case ${target} in
             -lcairo -ljpeg \
             `pkg-config --cflags --libs gstreamer-1.0 glib-2.0 gio-2.0 gtk+-3.0 libsoup-2.4` 
         ;;
+    demo-04|da_panel)
+		gcc -std=gnu99 -g -Wall -I../include  -D_DEBUG \
+            -o demo-04 demo-04.c da_panel.c \
+            ../lib/libann-utils.a  \
+            -lm -lpthread -ljson-c -ldl \
+            -lcairo -ljpeg \
+            `pkg-config --cflags --libs glib-2.0 gio-2.0 gtk+-3.0`
+        ;;
     *)
+		echo "no building rules"
+		exit 1
         ;;
 esac
 

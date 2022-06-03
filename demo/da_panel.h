@@ -23,6 +23,8 @@ struct da_panel
 	double x_offset;
 	double y_offset;
 	
+	int keep_ratio;
+	
 	void (* clear)(struct da_panel * panel);
 	
 	gboolean (* on_draw)(struct da_panel * panel, cairo_t * cr, void * user_data);

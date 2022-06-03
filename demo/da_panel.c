@@ -85,8 +85,6 @@ struct da_panel * da_panel_init(struct da_panel * panel, int image_width, int im
 		image_width * 4);
 	assert(surface && CAIRO_STATUS_SUCCESS == cairo_surface_status(surface));
 	
-	
-	
 	panel->surface = surface;
 	panel->image_data = image_data;
 	panel->image_width = image_width;
@@ -175,6 +173,19 @@ static gboolean on_da_draw(GtkWidget * da, cairo_t * cr, struct da_panel * panel
 	
 	double sx = (double)panel->width / (double)panel->image_width;
 	double sy = (double)panel->height / (double)panel->image_height;
+	
+	if(panel->keep_ratio) {
+		cairo_set_source_rgba(cr, 0, 0, 0, 1);
+		cairo_paint(cr);
+		
+		if(sx < sy) sy = sx;
+		else {
+			sx = sy;
+			double scaled_width = (double)panel->width / sx;
+			panel->x_offset = (scaled_width - (double)panel->image_width) / 2;
+		//	printf("image_width: %f, scaled_width: %f\n", (double)panel->image_width, scaled_width);
+		}
+	}
 	cairo_scale(cr, sx, sy);
 	cairo_set_source_surface(cr, panel->surface, panel->x_offset, panel->y_offset);
 	cairo_paint(cr);
