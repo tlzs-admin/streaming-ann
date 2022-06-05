@@ -57,6 +57,13 @@ case ${target} in
             -lcairo -ljpeg -ltesseract -llept \
             `pkg-config --cflags --libs glib-2.0 gio-2.0 gtk+-3.0`
         ;;
+    webserver)
+		gcc -std=gnu99 -g -Wall -I../include  -D_DEBUG \
+		    -o webserver webserver.c \
+		    ../lib/libann-utils.a  \
+		    -lm -lpthread -ljson-c -ljpeg -lpng -lcairo -ldl \
+		    `pkg-config --libs --cflags libsoup-2.4 gio-2.0 glib-2.0`
+		;;
     
     *)
 		echo "no building rules"

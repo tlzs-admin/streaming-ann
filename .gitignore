@@ -39,5 +39,5 @@ backup/
 *.avi
 *.mp4
 
-
+!demo/html
 
