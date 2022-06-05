@@ -1,0 +1,13 @@
+{
+  "ai-engine":{
+    "type":"ai-engine::tesseract-ocr",
+    "lang": "jpn";
+  },
+  
+  "shell":{
+    "colors":{
+        "default":"green",
+    }
+  }
+}
+

@@ -41,6 +41,23 @@ case ${target} in
             -lcairo -ljpeg \
             `pkg-config --cflags --libs glib-2.0 gio-2.0 gtk+-3.0`
         ;;
+    demo-05)
+		## check dependencies
+		if ! pkg-config --list-all | grep tesseract > /dev/null ; then
+			echo "tesseract not found"
+			sudo apt-get -y install libtesseract-dev tesseract-ocr-jpn libleptonica-dev
+			[ ! -z $? ] && exit 1
+		fi
+		
+		## build
+		gcc -std=gnu99 -g -Wall -I../include  -D_DEBUG \
+            -o demo-05 demo-05.c da_panel.c \
+            ../lib/libann-utils.a  \
+            -lm -lpthread -ljson-c -ldl \
+            -lcairo -ljpeg -ltesseract -llept \
+            `pkg-config --cflags --libs glib-2.0 gio-2.0 gtk+-3.0`
+        ;;
+    
     *)
 		echo "no building rules"
 		exit 1
