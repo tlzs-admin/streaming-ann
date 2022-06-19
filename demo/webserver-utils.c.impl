@@ -1,0 +1,363 @@
+/*
+ * webserver-utils.c.impl
+ * 
+ * Copyright 2022 chehw <hongwei.che@gmail.com>
+ * 
+ * The MIT License (MIT)
+ * 
+ * Permission is hereby granted, free of charge, to any person obtaining a copy 
+ * of this software and associated documentation files (the "Software"), to deal 
+ * in the Software without restriction, including without limitation the rights 
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell 
+ * copies of the Software, and to permit persons to whom the Software is 
+ * furnished to do so, subject to the following conditions:
+ * 
+ * The above copyright notice and this permission notice shall be included in all 
+ * copies or substantial portions of the Software.
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE 
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, 
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS 
+ * IN THE SOFTWARE.
+ * 
+ */
+
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <assert.h>
+
+
+#include <pthread.h>
+#include <search.h>
+#include <limits.h>
+#include <unistd.h>
+
+#include <sys/types.h>
+#include <pwd.h>
+#include <errno.h>
+
+
+#include "webserver-utils.h"
+#include "utils.h"
+
+/*************************************************
+ * utils
+*************************************************/
+
+void auto_unlock_mutex(void * pp_mutex)
+{
+	pthread_mutex_t * p_mutex = *(pthread_mutex_t **)pp_mutex;
+	if(p_mutex) {
+		pthread_mutex_unlock(p_mutex);
+		*(pthread_mutex_t **)pp_mutex = NULL;
+	}
+}
+
+int make_sandbox(const char * document_root, uid_t real_uid, uid_t real_gid)
+{
+	int rc = 0;
+	uid_t current_uid = getuid();
+	gid_t current_gid = getgid();
+	if(current_uid != 0) {
+		fprintf(stderr, "[WARNING]: only root user can make sandbox.\n");
+		return -1;
+	}
+	
+	rc = chdir(document_root);
+	if(-1 == rc) {
+		int err = errno;
+		fprintf(stderr, "[ERROR]::%s::chdir() failed: %s\n", __FUNCTION__, strerror(err));
+		return rc;
+	}
+	
+	
+	rc = chroot(document_root);
+	if(-1 == rc) {
+		int err = errno;
+		fprintf(stderr, "[ERROR]::%s::chroot() failed: %s\n", __FUNCTION__, strerror(err));
+		return rc;
+	}
+	
+	rc = setresgid(real_gid, real_gid, current_gid);
+	rc = setresuid(real_uid, real_uid, current_uid);
+	
+#ifdef _DEBUG
+	char cur_dir[PATH_MAX] = "";
+	char * path = getcwd(cur_dir, sizeof(cur_dir));
+	
+	
+	fprintf(stderr, "  document_root: %s\n  cur_path: %s\n", document_root, path);
+	fprintf(stderr, "  uid=%ld(euid=%ld), gid=%ld(egid=%ld)\n",
+		(long)getuid(), (long)geteuid(), 
+		(long)getgid(), (long)getegid());
+
+#endif
+	
+	return rc;
+}
+
+int verify_web_path(const char * path)
+{
+	if(!path && path[0] != '/') return -1;
+	if(strstr(path, "./") || strstr(path, "../")) return -1;
+	return 0;
+}
+
+
+int get_user_id(const char * user_name, uid_t * p_uid, gid_t * p_gid)
+{
+	struct passwd pwd;
+	struct passwd * result = NULL;
+	size_t pwd_bufsize = sysconf(_SC_GETPW_R_SIZE_MAX);
+	if(pwd_bufsize == -1) pwd_bufsize = (1<<16);
+	
+	char * pwd_buf = calloc(1, pwd_bufsize);
+	assert(pwd_buf);
+	
+	int rc = getpwnam_r(user_name, &pwd, pwd_buf, pwd_bufsize, &result);
+	if(0 == rc && result) {
+		fprintf(stderr, "runas user: %s(%s), uid=%d, gid=%d\n", pwd.pw_name, pwd.pw_gecos, 
+			(int)pwd.pw_uid,
+			(int)pwd.pw_gid);
+		if(p_uid) *p_uid = pwd.pw_uid;
+		if(p_gid) *p_gid = pwd.pw_gid;
+	}else if(NULL == result) {
+		fprintf(stderr, "user not found.\n");
+		rc = -1;
+	}else{
+		perror("getpwnam_r");
+	}
+	free(pwd_buf);
+	return rc;
+}
+
+
+/*************************************************
+ * pages_cache
+*************************************************/
+static char empty_string[1] = "";
+
+static int page_data_compare(const void * _a, const void * _b)
+{
+	const struct page_data * a = _a;
+	const struct page_data * b = _b;
+	return strcmp(a->path, b->path);
+}
+
+struct page_data * page_data_new(const char * path, ssize_t length, unsigned char * data, const char * path_name)
+{
+	assert(path);
+	
+	struct page_data * page = calloc(1, sizeof(*page));
+	assert(page);
+	
+	page->path = strdup(path);
+	page->length = length;
+	page->data = data;
+	if(path_name) page->path_name = strdup(path_name);
+	
+	return page;
+}
+void page_data_clear(struct page_data * page)
+{
+	if(page && page->data) {
+		free(page->data);
+		page->data = NULL;
+		page->length = 0;
+	}
+}
+void page_data_free(struct page_data * page)
+{
+	if(NULL == page) return;
+	page_data_clear(page);
+	
+	if(page->path) free(page->path);
+	if(page->path_name) free(page->path_name);
+	memset(page, 0, sizeof(*page));
+	free(page);
+}
+
+static struct page_data * reload_page(struct pages_cache * pages, const char * path);
+static int pages_cache_get(struct pages_cache * pages, const char * path, const struct page_data ** p_page);
+static void pages_cache_clear_all(struct pages_cache * pages)
+{
+	if(pages && pages->search_root) {
+		tdestroy(pages->search_root, (__free_fn_t)page_data_free);
+		pages->search_root = NULL;
+	}
+}
+
+static int pages_cache_update(struct pages_cache * pages, const char * path, struct page_data * page)
+{
+	assert(path);
+	AUTO_LOCKER(&pages->mutex);
+	
+	void * p_node = NULL;
+	if(NULL == page) page = reload_page(pages, path);
+	
+	if(NULL == page) { // remove old cached-page
+		struct page_data pattern[1] = {{
+			.path = (char *)path,
+		}};
+		p_node = tfind(pattern, &pages->search_root, page_data_compare);
+		if(p_node) page = *(struct page_data **)p_node;
+		
+		tdelete(pattern, &pages->search_root, page_data_compare);
+		page_data_free(page);
+		
+		return 1;
+	}
+	
+	p_node = tsearch(page, &pages->search_root, page_data_compare);
+	assert(p_node);
+	
+	if(*(struct page_data **)p_node != page) {
+		struct page_data * old_page = *(struct page_data **)p_node;
+		// replace data
+		page_data_clear(old_page);
+		old_page->data = page->data;
+		old_page->length = page->length;
+		old_page->is_dirty = 0;
+		
+		page->data = NULL;
+		page->length = 0;
+		page_data_free(page); 
+	}
+	
+	return 0;
+}
+
+void pages_cache_cleanup(struct pages_cache * pages)
+{
+	if(NULL == pages) return;
+	pages_cache_clear_all(pages);
+	if(pages->document_root && pages->document_root != empty_string) free(pages->document_root);
+	
+	pthread_mutex_destroy(&pages->mutex);
+	return;
+}
+
+struct pages_cache * pages_cache_init(struct pages_cache * pages, const char * document_root, uid_t uid, gid_t gid, void * user_data)
+{
+	int rc = 0;
+	if(NULL == pages) pages = calloc(1, sizeof(*pages));
+	assert(pages);
+	
+	pages->get = pages_cache_get;
+	pages->update = pages_cache_update;
+	pages->clear_all = pages_cache_clear_all;
+	//~ pages->remove = pages_cache_remove;
+	
+
+	rc = pthread_mutex_init(&pages->mutex, NULL);
+	assert(0 == rc);
+
+	char cur_dir[PATH_MAX] = "";
+	
+	
+	if(NULL == document_root) document_root = cur_dir;
+	else if(document_root[0] != '/') {
+		char * path = getcwd(cur_dir, sizeof(cur_dir));
+		assert(path);
+		int cb_path = strlen(path);
+		assert(cb_path > 0);
+		
+		cur_dir[cb_path++] = '/';
+		assert(cb_path < sizeof(cur_dir));
+		strncpy(&cur_dir[cb_path], document_root, sizeof(cur_dir) - cb_path);
+		
+		document_root = cur_dir;
+	}
+	
+	assert(document_root);
+	
+	pages->uid = uid;
+	pages->gid = gid;
+	pages->user_data = user_data;
+	
+	
+	
+	rc = make_sandbox(document_root, uid, gid);
+	if(0 == rc) {
+		pages->document_root = empty_string;
+		pages->in_sandbox = 1;
+	}else {
+		pages->document_root = strdup(document_root);
+		pages->in_sandbox = 0;
+	}
+
+	
+	return pages;
+}
+
+
+static struct page_data * reload_page(struct pages_cache * pages, const char * path)
+{
+	char old_path_buf[PATH_MAX] = "";
+	char * old_path = NULL;
+	char path_buf[PATH_MAX] = "";
+	const char * real_name = path;
+	
+	if(!pages->in_sandbox) {
+		assert(pages->document_root);
+		
+		old_path = getcwd(old_path_buf, sizeof(old_path_buf));
+		chdir(pages->document_root);
+	
+		real_name = realpath(path + 1, path_buf); /* skip the leading '/' */
+		if(NULL == real_name) {
+			fprintf(stderr, "[ERROR]::%s(): invalid path name '%s'.\n", __FUNCTION__, path);
+			return NULL;
+		}
+		
+		if(verify_web_path(real_name) != 0) {
+			fprintf(stderr, "[ERROR]::%s(): invalid path format '%s'!\n", __FUNCTION__, path);
+			return NULL;
+		}
+	}
+
+	unsigned char * data = NULL;
+	ssize_t length = load_binary_data(real_name, &data);
+	if(old_path) chdir(old_path);
+	
+	struct page_data * page = page_data_new(path, length, data, real_name);
+	debug_printf("%s(%s)::page={.path:%s, .length:%ld, .real_name:%s}", __FUNCTION__, path, 
+		page->path, (long)page->length, page->path_name);
+	return page;
+}
+
+static int pages_cache_get(struct pages_cache * pages, const char * path, const struct page_data ** p_page) 
+{
+	assert(pages && p_page && path && path[0] == '/');
+	
+	debug_printf("%s(%s)...\n", __FUNCTION__, path);
+	
+	const struct page_data * page = NULL;
+	struct page_data pattern[1] = {{
+		.path = (char *)path,
+	}};
+	
+	void * p_node = tfind(pattern, &pages->search_root, page_data_compare);
+	if(p_node) page = *(const struct page_data **)p_node;
+	
+	if(NULL == page) {
+		
+		page = reload_page(pages, path);
+		if(NULL == page) return -1;
+		
+		p_node = tsearch(page, &pages->search_root, page_data_compare);
+		assert(p_node && (*(const struct page_data **)p_node == page));
+	}
+	
+	*p_page = page;
+	return 0;
+}
+
+
+
+

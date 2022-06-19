@@ -57,8 +57,8 @@ case ${target} in
             -lcairo -ljpeg -ltesseract -llept \
             `pkg-config --cflags --libs glib-2.0 gio-2.0 gtk+-3.0`
         ;;
-    webserver)
-		gcc -std=gnu99 -g -Wall -I../include  -D_DEBUG \
+    webserver|webserver-utils)
+		gcc -std=gnu99 -g -Wall -I../include  -D_DEBUG -D_GNU_SOURCE \
 		    -o webserver webserver.c \
 		    ../lib/libann-utils.a  \
 		    -lm -lpthread -ljson-c -ljpeg -lpng -lcairo -ldl \

@@ -1,9 +1,10 @@
 {
 	"port": 8081,
-	"input": {
-		"type": "io-plugin::httpd",
-		"port": "9002",
-	},
+	"document_root": "./html",
+	"server_cert_file": "ssl/server_cert.pem",
+	"server_key_file": "ssl/server_key.pem",
+	"use_ssl": 1,
+	
 	"engine": {
 		"type":"ai-engine::httpclient",
 		"url":"http://127.0.0.1:9090/ai"

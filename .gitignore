@@ -40,4 +40,6 @@ backup/
 *.mp4
 
 !demo/html
+!demo/html/js
+
 
