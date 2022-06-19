@@ -76,13 +76,9 @@ body {
     position: absolute;
 }
 
-video {
+video,canvas{
     width: 100%;
     background: rgba(0, 0, 0, 0.2);
-}
-
-canvas {
-    width: 100%;
     height: auto;
 }
 

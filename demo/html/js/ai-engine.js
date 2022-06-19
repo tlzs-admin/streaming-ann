@@ -10,7 +10,7 @@ const [play, pause, screenshot] = buttons;
 const facing_default_btn = document.getElementById('facing-default');
 const facing_front_btn = document.getElementById('facing-front');
 const facing_rear_btn = document.getElementById('facing-rear');
-let facing_mode = 'user';
+let facing_mode = '';
 let stream_started = false;
 let start_time = 0.0;
 let frame_number = 0;
@@ -27,6 +27,12 @@ const video_constraints = {
 		ideal: 1080,
 		max: 1440
 	},
+};
+
+const constraints = {
+	video: {
+		...video_constraints
+	}
 };
 
 facing_default_btn.onclick = () => {
@@ -84,7 +90,7 @@ facing_front_btn.onclick = () => {
 
 
 facing_rear_btn.onclick = () => {
-	facing_mode = 'user';
+	facing_mode = 'environment';
 	
 	facing_rear_btn.classList.remove('btn-secondary');
 	facing_rear_btn.classList.add('btn-primary');
@@ -111,18 +117,6 @@ facing_rear_btn.onclick = () => {
 }
 
 
-const constraints = [
-	video_constraints,
-	{
-		...video_constraints,
-		facingMode: { exact: 'user' }
-	},
-	{
-		...video_constraints,
-		facingMode: { exact: 'environment' }
-	}
-];
-
 const query_camera_options = async () => {
   const devices = await navigator.mediaDevices.enumerateDevices();
   const videoDevices = devices.filter(device => device.kind === 'videoinput');
@@ -134,9 +128,11 @@ const query_camera_options = async () => {
 
 
 
-camera_options.onchange = () => {
+camera_options.onchange = () => {	
 	const updatedConstraints = {
-		...constraints[1],
+		video: {
+			...video_constraints
+		},
 		deviceId: {
 			exact: cameraOptions.value
 		}
@@ -149,7 +145,7 @@ const start_stream = async (constraints) => {
 	video.srcObject = stream;
 	play.classList.add('d-none');
 	pause.classList.remove('d-none');
-	screenshot.classList.remove('d-none');
+	//~ screenshot.classList.remove('d-none');
 	
 	video.addEventListener('play', () => {
 	if (!('requestVideoFrameCallback' in HTMLVideoElement.prototype)) {
