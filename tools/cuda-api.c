@@ -826,7 +826,7 @@ int cuda_module_add_kernel_file(cuda_module_t * module, enum cuda_source_type so
 			// compile to assembly code
 			int arch = module->arch;
 			if(0 == arch) arch = 61;
-			char compile_command[4096] = "";
+			char compile_command[4096 + 1024] = "";
 			
 			char * tmp = strdup(filename);
 			assert(tmp);

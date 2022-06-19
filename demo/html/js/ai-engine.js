@@ -248,10 +248,10 @@ const draw_frame = (response) => {
 			let cx = bbox['width'] * width;
 			let cy = bbox['height'] * height;
 			
-			cr.rect(10, 10, width, height);
+			cr.rect(x, y, cx, cy);
 			
 			cr.fillStyle = "blue";
-			cr.fillText(det['class'], x, y);
+			cr.fillText(bbox['class'], x, y);
 		}
 		cr.stroke();
 	}

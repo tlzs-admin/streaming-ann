@@ -15,7 +15,7 @@ case ${target} in
             ../lib/libann-utils.a  \
             -lm -lpthread -ljson-c -ldl \
             -lcairo -ljpeg \
-            `pkg-config --cflags --libs gstreamer-1.0 glib-2.0 gio-2.0 gtk+-3.0 libcurl` 
+            `pkg-config --cflags --libs gstreamer-1.0 glib-2.0 gio-2.0 gtk+-3.0 libcurl`
         ;;
     ai-server)
         gcc -std=gnu99 -O3 -Wall -I../include \
@@ -23,7 +23,8 @@ case ${target} in
             ../lib/libann-utils.a  \
             -lm -lpthread -ljson-c -ldl \
             -ljpeg -lcairo \
-            `pkg-config --cflags --libs libsoup-2.4` 
+            `pkg-config --cflags --libs libsoup-2.4` -lcuda -lcudart -lcublas -lcurand
+
         ;;
     demo)
 		gcc -std=gnu99 -g -Wall -I../include  -D_DEBUG \
@@ -31,7 +32,7 @@ case ${target} in
             ../lib/libann-utils.a  \
             -lm -lpthread -ljson-c -ldl \
             -lcairo -ljpeg \
-            `pkg-config --cflags --libs gstreamer-1.0 glib-2.0 gio-2.0 gtk+-3.0 libsoup-2.4` 
+            `pkg-config --cflags --libs gstreamer-1.0 glib-2.0 gio-2.0 gtk+-3.0 libsoup-2.4`
         ;;
     demo-04|da_panel)
 		gcc -std=gnu99 -g -Wall -I../include  -D_DEBUG \
@@ -48,7 +49,7 @@ case ${target} in
 			sudo apt-get -y install libtesseract-dev tesseract-ocr-jpn libleptonica-dev
 			[ ! -z $? ] && exit 1
 		fi
-		
+
 		## build
 		gcc -std=gnu99 -g -Wall -I../include  -D_DEBUG \
             -o demo-05 demo-05.c da_panel.c \
@@ -64,7 +65,7 @@ case ${target} in
 		    -lm -lpthread -ljson-c -ljpeg -lpng -lcairo -ldl \
 		    `pkg-config --libs --cflags libsoup-2.4 gio-2.0 glib-2.0`
 		;;
-    
+
     *)
 		echo "no building rules"
 		exit 1

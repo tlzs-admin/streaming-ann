@@ -2,12 +2,14 @@
 
 TARGET=${1-"darknet"}
 
-DARKNET_CFLAGS=" -I/storage/git/darknet.yolov3/include -I. "
-DARKNET_LIBS="/storage/git/darknet.yolov3/libdarknet.a"
+DARKNET_PATH="/localstor/git/darknet"
+
+DARKNET_CFLAGS=" -I${DARKNET_PATH}/include -I. "
+DARKNET_LIBS="${DARKNET_PATH}/libdarknet.a"
 
 if [ ! -e plugins ]; then
        ln -s ../../../plugins ./
-fi 
+fi
 
 if [ ! -e include ]; then
 	ln -s ../../../include ./
@@ -18,10 +20,10 @@ if [ ! -e utils ]; then
 fi
 
 
-if [ -e /usr/local/cuda ] ; then
- DARKNET_CFLAGS+=" -DGPU -I/usr/local/cuda/include "
- DARKNET_LIBS+=" -L/usr/local/cuda/lib64 -lcudart -lcublas -lcurand "
-fi
+#if [ -e /usr/local/cuda ] ; then
+DARKNET_CFLAGS+=" -DGPU "
+DARKNET_LIBS+=" -lcuda -lcudart -lcublas -lcurand "
+#fi
 
 function build()
 {

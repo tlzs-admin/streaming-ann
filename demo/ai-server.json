@@ -8,10 +8,10 @@
 			"conf_file": "models/yolov3.cfg", 
 			"weigths_file": "models/yolov3.weights" 
 		},
-		{
-			"conf_file": "models/yolov3-6classes.cfg", 
-			"weigths_file": "models/yolov3-6classes.weights",
-			"labels_file": "models/6classes.txt",
-		}
+		//{
+		//	"conf_file": "models/yolov3-6classes.cfg", 
+		//	"weigths_file": "models/yolov3-6classes.weights",
+		//	"labels_file": "models/6classes.txt",
+		//}
 	]
 }
