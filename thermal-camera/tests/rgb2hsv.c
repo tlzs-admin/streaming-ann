@@ -75,6 +75,44 @@ static int rgb_to_hsv(const double rgb[3], double hsv[3])
 	return 0;
 }
 
+static int hsv_to_rgb(const double hsv[3], double rgb[3])
+{
+	double h = hsv[0];
+	double s = hsv[1];
+	double v = hsv[2];
+	
+	static const double scale = 1.0 / 255.0;
+	
+	if(h == -1) // min == max 
+	{
+		double gray = v * scale;
+		rgb[0] = rgb[1] = rgb[2] = gray;
+		return 0;
+	}
+	
+	int f = (int)(h / 60) % 6;
+	double p = v * (1 - s);
+	double q = v * (1 - s * f);
+	double t = v * (1 - s * (1-f));
+	
+	
+	switch(f) {
+	case 0: rgb[0] = v; rgb[1] = t; rgb[2] = p; break;
+	case 1: rgb[0] = q; rgb[1] = v; rgb[2] = p; break;
+	case 2: rgb[0] = p; rgb[1] = v; rgb[2] = t; break;
+	case 3: rgb[0] = p; rgb[1] = q; rgb[2] = v; break;
+	case 4: rgb[0] = t; rgb[1] = p; rgb[2] = v; break;
+	case 5: rgb[0] = v; rgb[1] = p; rgb[2] = q; break;
+	default: 
+		return -1;
+	}
+	
+	rgb[0] *= scale;
+	rgb[1] *= scale;
+	rgb[2] *= scale;
+	return 0;
+}
+
 static int init_windows();
 static int shell_run();
 
@@ -104,6 +142,20 @@ static void on_rgb_value_changed(GtkSpinButton * spin, gpointer user_data)
 	rgb_values[index] = gtk_spin_button_get_value(spin) / 255.0;
 	
 	rgb_to_hsv(rgb_values, hsv_values);
+	
+#if _DEBUG
+	double rgb[3] = { 0.0 };
+	hsv_to_rgb(hsv_values, rgb);
+	printf("origin rgb: %d, %d, %d\n", 
+		(int)(rgb_values[0] * 255),
+		(int)(rgb_values[1] * 255),
+		(int)(rgb_values[2] * 255));
+	printf("calc.. rgb: %d, %d, %d\n", 
+		(int)(rgb_values[0] * 255),
+		(int)(rgb_values[1] * 255),
+		(int)(rgb_values[2] * 255));
+#endif
+	
 	if(hsv_values[0] != -1) gtk_spin_button_set_value(hsv_spins[0], hsv_values[0]);
 	gtk_spin_button_set_value(hsv_spins[1], hsv_values[1]);
 	gtk_spin_button_set_value(hsv_spins[2], hsv_values[2]);
