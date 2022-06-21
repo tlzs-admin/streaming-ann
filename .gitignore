@@ -42,4 +42,4 @@ backup/
 !demo/html
 !demo/html/js
 
-
+!thermal-camera
