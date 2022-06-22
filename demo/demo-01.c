@@ -581,9 +581,9 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 			for(ssize_t i = 0; i < shell->num_detected_classes; ++i) {
 				struct class_counter * detected = &shell->detected_classes[i];
 				gtk_list_store_append(store, &iter);
-				gtk_list_store_set(store, &iter, LISTVIEW_COLUMN_index, i, 
+				gtk_list_store_set(store, &iter, LISTVIEW_COLUMN_index, (gint)i, 
 					LISTVIEW_COLUMN_class_name, detected->name,
-					LISTVIEW_COLUMN_counter, detected->counter, 
+					LISTVIEW_COLUMN_counter, (gint)detected->counter, 
 					-1);
 			}
 			gtk_tree_view_set_model(shell->listview, GTK_TREE_MODEL(store));

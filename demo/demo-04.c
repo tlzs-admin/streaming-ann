@@ -47,6 +47,18 @@
 #include <getopt.h>
 #include <libgen.h>	// dirname() || basename()
 
+#include <libintl.h>	// gettext()
+#ifndef _
+#define _(str) gettext(str)
+#endif
+
+
+#ifndef JSON_C_TO_STRING_NOSLASHESCAPE
+#define JSON_C_TO_STRING_NOSLASHESCAPE 0
+#endif
+
+
+
 #define IO_PLUGIN_DEFAULT 	 	"io-plugin::input-source"
 
 #define AI_PLUGIN_YOLOv3		"ai-engine::yolov3"
@@ -80,6 +92,14 @@ void global_params_cleanup(struct global_params * params)
 	// todo
 }
 
+
+
+#define MAX_CLASSES (80)
+struct class_counter
+{
+	char name[100];
+	long counter;
+};
 struct shell_context
 {
 	struct global_params * params;
@@ -98,9 +118,13 @@ struct shell_context
 	da_panel_t panels[1];
 	
 	int quit;
-	
 	json_object * jcolors;
 	GdkRGBA default_fg;
+	
+	GtkTreeView * listview;
+	
+	ssize_t num_detected_classes;
+	struct class_counter detected_classes[MAX_CLASSES];
 };
 shell_context_t * shell_context_new(int argc, char ** argv, struct global_params * params);
 void shell_context_cleanup(shell_context_t * shell);
@@ -166,6 +190,8 @@ static json_object * generate_default_config(void)
 	
 	fprintf(stderr, "%s(): \n%s\n", __FUNCTION__, 
 		json_object_to_json_string_ext(jconfig, JSON_C_TO_STRING_PRETTY | JSON_C_TO_STRING_NOSLASHESCAPE));
+	
+	json_object_to_file_ext("demo-04.json", jconfig, JSON_C_TO_STRING_PRETTY | JSON_C_TO_STRING_NOSLASHESCAPE);
 	return jconfig;
 }
 
@@ -323,6 +349,10 @@ static void on_file_selection_changed(GtkFileChooser * file_chooser, shell_conte
 	filename = shell->current_file;
 	debug_printf("filename: %s\n", filename);
 	
+	// reset shell->detected_classes
+	shell->num_detected_classes = 0;
+	memset(shell->detected_classes, 0, sizeof(shell->detected_classes));
+	
 	unsigned char * image_data = NULL;
 	ssize_t cb_data = load_binary_data(filename, &image_data);
 	
@@ -399,6 +429,38 @@ static gboolean on_file_chooser_mode_changed(GtkSwitch * switch_btn, gboolean st
 	return FALSE;
 }
 
+
+enum LISTVIEW_COLUMN
+{
+	LISTVIEW_COLUMN_index,
+	LISTVIEW_COLUMN_class_name,
+	LISTVIEW_COLUMN_counter,
+	LISTVIEW_COLUMNS_count
+};
+
+static void init_listview(GtkTreeView * listview)
+{
+	GtkTreeViewColumn * col;
+	GtkCellRenderer * cr;
+	
+	cr = gtk_cell_renderer_text_new();
+	col = gtk_tree_view_column_new_with_attributes(_("Class"), cr, "text", LISTVIEW_COLUMN_class_name, NULL);
+	gtk_tree_view_append_column(listview, col);
+	gtk_tree_view_column_set_resizable(col, TRUE);
+	gtk_tree_view_column_set_fixed_width(col, 120);
+	
+	cr = gtk_cell_renderer_text_new();
+	col = gtk_tree_view_column_new_with_attributes(_("Count"), cr, "text", LISTVIEW_COLUMN_counter, NULL);
+	gtk_tree_view_append_column(listview, col);
+	gtk_tree_view_column_set_resizable(col, TRUE);
+	
+	GtkListStore * store = gtk_list_store_new(LISTVIEW_COLUMNS_count, G_TYPE_INT, G_TYPE_STRING, G_TYPE_INT);
+	gtk_tree_view_set_model(listview, GTK_TREE_MODEL(store));
+	
+	gtk_tree_view_set_grid_lines(listview, GTK_TREE_VIEW_GRID_LINES_BOTH);
+	return;
+}
+
 static void init_windows(shell_context_t * shell)
 {
 	assert(shell && shell->params);
@@ -452,9 +514,31 @@ static void init_windows(shell_context_t * shell)
 	filter = g_object_ref(filter);
 	gtk_file_chooser_set_filter(GTK_FILE_CHOOSER(file_chooser_btn), filter);
 	
+	
+	
+	GtkWidget * hpaned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
+	gtk_paned_add2(GTK_PANED(vpaned), hpaned);
+	
+	gtk_box_pack_start(GTK_BOX(vbox), hpaned, TRUE, TRUE, 0);
+	
 	da_panel_t * panel = da_panel_init(&shell->panels[0], 640, 480, shell);
-	gtk_paned_add2(GTK_PANED(vpaned), panel->frame);
+	gtk_paned_add1(GTK_PANED(hpaned), panel->frame);
+	gtk_paned_set_position(GTK_PANED(hpaned), 960);
 	panel->keep_ratio = 1;
+	
+	
+	GtkWidget * scrolled_win = gtk_scrolled_window_new(NULL, NULL);
+	GtkWidget * listview = gtk_tree_view_new();
+	init_listview(GTK_TREE_VIEW(listview));
+	shell->listview = GTK_TREE_VIEW(listview);
+	
+	gtk_container_add(GTK_CONTAINER(scrolled_win), listview);
+	gtk_scrolled_window_set_shadow_type(GTK_SCROLLED_WINDOW(scrolled_win), GTK_SHADOW_ETCHED_IN);
+	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled_win), GTK_POLICY_AUTOMATIC, GTK_POLICY_ALWAYS);
+	gtk_widget_set_size_request(scrolled_win, 180, -1);
+	gtk_widget_set_hexpand(scrolled_win, TRUE);
+	gtk_widget_set_vexpand(scrolled_win, TRUE);
+	gtk_paned_add2(GTK_PANED(hpaned), scrolled_win);
 	
 	g_signal_connect_swapped(window, "destroy", G_CALLBACK(shell_stop), shell);
 	gtk_widget_show_all(window);
@@ -480,6 +564,31 @@ static int shell_stop(struct shell_context * shell)
 	shell->quit = 1;
 	gtk_main_quit();
 	return 0;
+}
+
+
+
+static void clear_class_counters(struct shell_context * shell)
+{
+	for(ssize_t i = 0; i < shell->num_detected_classes; ++i) {
+		shell->detected_classes[i].counter = 0;
+	}
+}
+
+static void update_class_counter(struct shell_context * shell, const char * class_name)
+{
+	assert(shell && class_name);
+	for(ssize_t i = 0; i < shell->num_detected_classes; ++i)  {
+		if(strncasecmp(class_name, shell->detected_classes[i].name, sizeof(shell->detected_classes[i].name))) continue;
+		++shell->detected_classes[i].counter;
+		return;
+	}
+	
+	assert(shell->num_detected_classes < MAX_CLASSES);
+	
+	struct class_counter * detected = &shell->detected_classes[shell->num_detected_classes++];
+	strncpy(detected->name, class_name, sizeof(detected->name));
+	++detected->counter;
 }
 
 static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_object * jresult)
@@ -555,6 +664,7 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 			cairo_select_font_face(cr, "Mono", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
 			cairo_set_font_size(cr, font_size);
 			
+			clear_class_counters(shell);
 			for(int i = 0; i < count; ++i)
 			{
 				gboolean color_parsed = FALSE;
@@ -571,6 +681,8 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 					ok = json_object_object_get_ex(shell->jcolors, class_name, &jcolor);
 					if(ok && jcolor) color = json_object_get_string(jcolor);
 					if(color) color_parsed = gdk_rgba_parse(&fg_color, color);
+					
+					update_class_counter(shell, class_name);
 				}
 				
 				if(!color_parsed) fg_color = shell->default_fg;
@@ -599,6 +711,19 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 				cairo_show_text(cr, class_name);
 				cairo_stroke(cr);
 			}
+			
+			GtkListStore * store = gtk_list_store_new(LISTVIEW_COLUMNS_count, G_TYPE_INT, G_TYPE_STRING, G_TYPE_INT);
+			GtkTreeIter iter;
+			for(ssize_t i = 0; i < shell->num_detected_classes; ++i) {
+				struct class_counter * detected = &shell->detected_classes[i];
+				gtk_list_store_append(store, &iter);
+				gtk_list_store_set(store, &iter, LISTVIEW_COLUMN_index, (gint)i, 
+					LISTVIEW_COLUMN_class_name, detected->name,
+					LISTVIEW_COLUMN_counter, (gint)detected->counter, 
+					-1);
+			}
+			gtk_tree_view_set_model(shell->listview, GTK_TREE_MODEL(store));
+			g_object_unref(store);
 		}
 		
 		cairo_destroy(cr);
