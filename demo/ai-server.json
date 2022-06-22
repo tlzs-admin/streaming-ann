@@ -1,7 +1,15 @@
 {
 	"port": 9090,
 	"plugins_dir": "plugins",
-	
+	"CORS": {
+		"origins_list": [
+			"https://localhost:8081",
+		],
+		"Access-Control-Allow-Credentials": true,
+		"Access-Control-Allow-Methods": "POST, GET, OPTIONS, DELETE",
+		"Access-Control-Allow-Headers": "Origin, Content-Type, Content-Length, Authorization",
+		"Access-Control-Max-Age": 86400,
+	},
 	"engines": 
 	[
 		{

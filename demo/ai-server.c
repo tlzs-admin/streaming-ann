@@ -48,6 +48,17 @@ typedef struct global_param
 	json_object * jconfig;
 	ssize_t count;
 	ai_engine_t ** engines;
+	
+	
+	// CORS
+	json_object * jorigins_list;	// a white list for Access-Control-Allow-Origin
+	char * access_control_allow_origin;
+	char * access_control_expose_headers;
+	int access_control_allow_credentials;
+	char * access_control_allow_headers;
+	char * access_control_allow_methods;
+	uint64_t access_control_max_age;
+	
 }global_param_t;
 global_param_t * global_param_parse_args(global_param_t * params, int argc, char ** argv);
 void global_param_cleanup(global_param_t * params);
@@ -56,6 +67,109 @@ static pthread_mutex_t g_mutex = PTHREAD_MUTEX_INITIALIZER;
 #define global_lock()	pthread_mutex_lock(&g_mutex)
 #define global_unlock()	pthread_mutex_unlock(&g_mutex)
 
+static ssize_t unix_time_to_string(
+	const time_t tv_sec, 
+	int use_gmtime, 
+	const char * time_fmt, 
+	char * sz_time, size_t max_size
+)
+{
+	if(NULL == time_fmt) time_fmt = "%Y-%m-%d %H:%M:%S %Z";
+	struct tm tm_buf[1], *t = NULL;
+	memset(tm_buf, 0, sizeof(tm_buf));
+	t = use_gmtime?gmtime_r(&tv_sec, tm_buf):localtime_r(&tv_sec, tm_buf);
+	if(NULL == t) {
+		perror("unix_time_to_string::gmtime_r/localtime_r");
+		return -1;
+	}
+	
+	ssize_t cb = strftime(sz_time, max_size, time_fmt, t);
+	return cb;
+}
+
+static void server_log_fmt(SoupMessage * msg, SoupClientContext * client, const char * fmt, ...)
+{
+	char text[4096] = "";
+	va_list ap;
+	va_start(ap, fmt);
+	int cb = vsnprintf(text, sizeof(text), fmt, ap);
+	va_end(ap);
+	if(cb <= 0) return;
+	if(text[cb - 1] == '\n') text[--cb] = '\0';
+	
+	char sz_time[100] = "";
+	struct timespec timestamp[1];
+	memset(timestamp, 0, sizeof(timestamp));
+	clock_gettime(CLOCK_REALTIME, timestamp);
+	ssize_t cb_time = unix_time_to_string(timestamp->tv_sec, 0, "%Y-%m-%d %H:%M:%S %Z", sz_time, sizeof(sz_time));
+	assert(cb_time > 0);
+	
+	const char * remote_addr = soup_client_context_get_host(client);
+	fprintf(stderr, "[LOG]: %s %s %s\n", sz_time, remote_addr, text);
+	return;
+}
+
+static int check_origin_and_set_header(global_param_t * app, const char * origin, SoupMessageHeaders * response_headers)
+{
+	if(NULL == origin) return -1;
+	if(NULL == app->access_control_allow_origin && NULL == app->jorigins_list) return -1;
+	
+	if(app->access_control_allow_origin != NULL) {
+		if(app->access_control_allow_origin[0] == '*' 
+		|| strcasecmp(origin, app->access_control_allow_origin) == 0) {
+			soup_message_headers_append(response_headers, "Access-Control-Allow-Origin", app->access_control_allow_origin);
+			return 0;
+		}
+	}else {
+		int num_origins = json_object_array_length(app->jorigins_list);
+		for(int i = 0; i < num_origins; ++i) {
+			const char * origin_in_white_list = json_object_get_string(json_object_array_get_idx(app->jorigins_list, i));
+			if(origin_in_white_list && strcasecmp(origin, origin_in_white_list) == 0) {
+				soup_message_headers_append(response_headers, "Access-Control-Allow-Origin", origin_in_white_list);
+				return 0;
+			}
+		}
+	}
+	return -1;
+}
+static guint on_options(SoupServer * server, SoupMessage * msg, const char * path, GHashTable * query, SoupClientContext * client, gpointer user_data)
+{
+	global_param_t * app = user_data;
+	assert(app);
+	
+	SoupMessageHeaders * req_hdrs = msg->request_headers;
+	SoupMessageHeaders * response_headers = msg->response_headers;
+	const char * origin = soup_message_headers_get_one(req_hdrs, "Origin");
+	server_log_fmt(msg, client, "request method: %s, origin: %s\n", msg->method, origin);
+	
+	int rc = check_origin_and_set_header(app, origin, response_headers);
+	if(rc) return SOUP_STATUS_BAD_REQUEST;
+	
+	if(app->access_control_expose_headers) {
+		soup_message_headers_append(response_headers, 
+			"Access-Control-Expose-Headers", app->access_control_expose_headers);
+	}
+	if(app->access_control_allow_headers) {
+		soup_message_headers_append(response_headers, 
+			"Access-Control-Allow-Headers", app->access_control_allow_headers);
+	}
+	if(app->access_control_max_age > 0) {
+		char sz_max_age[100] = "";
+		snprintf(sz_max_age, sizeof(sz_max_age), "%lu", (unsigned long)app->access_control_max_age);
+		soup_message_headers_append(response_headers, 
+			"Access-Control-Max-Age", sz_max_age);
+	}
+	if(app->access_control_allow_credentials) {
+		soup_message_headers_append(response_headers, 
+			"Access-Control-Allow-Credentials", "true");
+	}
+	if(app->access_control_allow_methods) {
+		soup_message_headers_append(response_headers, 
+			"Access-Control-Allow-Methods", app->access_control_allow_methods);
+	}
+	return SOUP_STATUS_OK;
+}
+
 
 void on_request_ai_engine(SoupServer * server, SoupMessage * msg, const char * path, 
 	GHashTable * query, SoupClientContext * client, gpointer user_data)
@@ -63,7 +177,13 @@ void on_request_ai_engine(SoupServer * server, SoupMessage * msg, const char * p
 	assert(user_data);
 	global_param_t * params = user_data;
 	
-	printf("method: %s\n", msg->method);
+	debug_printf("method: %s\n", msg->method);
+	if(msg->method == SOUP_METHOD_OPTIONS) {
+		guint status = on_options(server, msg, path, query, client, user_data);
+		soup_message_set_status(msg, status);
+		return;
+	}
+	
 	if(msg->method != SOUP_METHOD_POST) 
 	{
 		soup_message_set_status(msg, SOUP_STATUS_BAD_REQUEST);
@@ -158,7 +278,12 @@ void on_request_ai_engine(SoupServer * server, SoupMessage * msg, const char * p
 	assert(response);
 	int cb = strlen(response);
 	
+	SoupMessageHeaders * response_headers = msg->response_headers;
+	
+	soup_message_headers_append(response_headers, "Access-Control-Allow-Origin", 
+		params->access_control_allow_origin?params->access_control_allow_origin:"*");
 	soup_message_set_response(msg, "application/json", SOUP_MEMORY_COPY, response, cb);
+	
 	soup_message_set_status(msg, SOUP_STATUS_OK);
 	json_object_put(jresult);
 	return;
@@ -228,6 +353,31 @@ static void print_usuage(int argc, char ** argv)
 		   "    %s [--conf=<conf_file.json>] [--port=<port>] [--plugins_dir=<plugins>] \n", argv[0]);
 	return;
 }
+
+static int parse_cors_configs(global_param_t * app, json_object * jconfig)
+{
+	assert(app && jconfig);
+	
+	json_bool ok = FALSE;
+	app->access_control_allow_origin = json_get_value(jconfig, string, Access-Control-Allow-Origin);
+	if(NULL == app->access_control_allow_origin) {
+		ok = json_object_object_get_ex(jconfig, "origins_list", &app->jorigins_list);
+		if(!ok || NULL == app->jorigins_list || json_object_array_length(app->jorigins_list) <= 0) {
+			fprintf(stderr, 
+				"[WARNING]: Access-Control-Allow-Origin was set to '*', "
+				"DO NOT use it for responding to a credentialed requests request\n");
+			app->access_control_allow_origin = "*";	
+		}
+	}
+	app->access_control_expose_headers = json_get_value(jconfig, string, Access-Control-Expose-Headers);
+	app->access_control_max_age = json_get_value_default(jconfig, int, Access-Control-Max-Age, 86400);
+	app->access_control_allow_credentials = json_get_value(jconfig, int, Access-Control-Allow-Credentials);
+	app->access_control_allow_methods = json_get_value_default(jconfig, string, Access-Control-Allow-Methods, "GET, POST, OPTIONS");
+	app->access_control_allow_headers = json_get_value_default(jconfig, string, Access-Control-Allow-Headers, "Origin, Content-Type, Authorization");
+	
+	return 0;
+}
+
 global_param_t * global_param_parse_args(global_param_t * params, int argc, char ** argv)
 {
 	if(NULL == params) params = g_params;
@@ -301,6 +451,13 @@ global_param_t * global_param_parse_args(global_param_t * params, int argc, char
 	}
 	params->count = count;
 	params->engines = engines;
+	
+	
+	json_object * jcors = NULL;
+	ok = json_object_object_get_ex(jconfig, "CORS", &jcors);
+	if(ok && jcors)  parse_cors_configs(params, jcors);
+	
+	
 
 	return params;
 }
