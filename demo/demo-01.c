@@ -45,6 +45,11 @@
 #include "utils.h"
 #include "da_panel.h"
 
+#include <libintl.h>	// gettext()
+#ifndef _
+#define _(str) gettext(str)
+#endif
+
 #define IO_PLUGIN_DEFAULT "io-plugin::input-source"
 #define IO_PLUGIN_HTTPD "io-plugin::httpd"
 #define IO_PLUGIN_HTTP_CLIENT   "io-plugin::httpclient"
@@ -53,6 +58,14 @@
 //~ static pthread_mutex_t g_mutex = PTHREAD_MUTEX_INITIALIZER;
 //~ #define global_lock() 	pthread_mutex_lock(&g_mutex)
 //~ #define global_unlock()	pthread_mutex_unlock(&g_mutex)
+
+
+#define MAX_CLASSES (80)
+struct class_counter
+{
+	char name[100];
+	long counter;
+};
 
 struct ai_context;
 typedef struct shell_context
@@ -78,6 +91,11 @@ typedef struct shell_context
 	json_tokener * jtok;
 	json_object * jresult;
 	enum json_tokener_error jerr;
+	
+	GtkTreeView * listview;
+	
+	ssize_t num_detected_classes;
+	struct class_counter detected_classes[MAX_CLASSES];
 }shell_context_t;
 
 shell_context_t * shell_context_init(int argc, char ** argv, void * user_data);
@@ -360,6 +378,37 @@ void shell_context_cleanup(shell_context_t * shell)
 	return;
 }
 
+
+enum LISTVIEW_COLUMN
+{
+	LISTVIEW_COLUMN_index,
+	LISTVIEW_COLUMN_class_name,
+	LISTVIEW_COLUMN_counter,
+	LISTVIEW_COLUMNS_count
+};
+
+static void init_listview(GtkTreeView * listview)
+{
+	GtkTreeViewColumn * col;
+	GtkCellRenderer * cr;
+	
+	cr = gtk_cell_renderer_text_new();
+	col = gtk_tree_view_column_new_with_attributes(_("Class"), cr, "text", LISTVIEW_COLUMN_class_name, NULL);
+	gtk_tree_view_append_column(listview, col);
+	gtk_tree_view_column_set_resizable(col, TRUE);
+	gtk_tree_view_column_set_fixed_width(col, 120);
+	
+	cr = gtk_cell_renderer_text_new();
+	col = gtk_tree_view_column_new_with_attributes(_("Count"), cr, "text", LISTVIEW_COLUMN_counter, NULL);
+	gtk_tree_view_append_column(listview, col);
+	gtk_tree_view_column_set_resizable(col, TRUE);
+	
+	GtkListStore * store = gtk_list_store_new(LISTVIEW_COLUMNS_count, G_TYPE_INT, G_TYPE_STRING, G_TYPE_INT);
+	gtk_tree_view_set_model(listview, GTK_TREE_MODEL(store));
+	
+	gtk_tree_view_set_grid_lines(listview, GTK_TREE_VIEW_GRID_LINES_BOTH);
+	return;
+}
 static void init_windows(shell_context_t * shell)
 {
 	GtkWidget * window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
@@ -372,11 +421,29 @@ static void init_windows(shell_context_t * shell)
 	gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(header_bar), TRUE);
 	gtk_header_bar_set_title(GTK_HEADER_BAR(header_bar), "DEMO-01");
 
+	GtkWidget * hpaned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
+	gtk_box_pack_start(GTK_BOX(vbox), hpaned, TRUE, TRUE, 0);
+
 	struct da_panel * panel = da_panel_init(NULL, 640, 480, shell);
 	assert(panel);
 	shell->panels[0] = panel;
-	gtk_box_pack_start(GTK_BOX(vbox), panel->frame, TRUE, TRUE, 0);
 	gtk_widget_set_size_request(panel->da, 640, 480);
+	
+	gtk_paned_add1(GTK_PANED(hpaned), panel->frame);
+	gtk_paned_set_position(GTK_PANED(hpaned), 960);
+	
+	GtkWidget * scrolled_win = gtk_scrolled_window_new(NULL, NULL);
+	GtkWidget * listview = gtk_tree_view_new();
+	init_listview(GTK_TREE_VIEW(listview));
+	shell->listview = GTK_TREE_VIEW(listview);
+	
+	gtk_container_add(GTK_CONTAINER(scrolled_win), listview);
+	gtk_scrolled_window_set_shadow_type(GTK_SCROLLED_WINDOW(scrolled_win), GTK_SHADOW_ETCHED_IN);
+	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled_win), GTK_POLICY_AUTOMATIC, GTK_POLICY_ALWAYS);
+	gtk_widget_set_size_request(scrolled_win, 180, -1);
+	gtk_widget_set_hexpand(scrolled_win, TRUE);
+	gtk_widget_set_vexpand(scrolled_win, TRUE);
+	gtk_paned_add2(GTK_PANED(hpaned), scrolled_win);
 	
 	g_signal_connect_swapped(window, "destroy", G_CALLBACK(shell_stop), shell);
 	gtk_widget_show_all(window);
@@ -411,6 +478,32 @@ static gboolean on_idle(shell_context_t * shell)
 	return G_SOURCE_REMOVE;
 }
 
+
+
+static void clear_class_counters(struct shell_context * shell)
+{
+	for(ssize_t i = 0; i < shell->num_detected_classes; ++i) {
+		shell->detected_classes[i].counter = 0;
+	}
+}
+
+static void update_class_counter(struct shell_context * shell, const char * class_name)
+{
+	assert(shell && class_name);
+	for(ssize_t i = 0; i < shell->num_detected_classes; ++i)  {
+		if(strncasecmp(class_name, shell->detected_classes[i].name, sizeof(shell->detected_classes[i].name))) continue;
+		++shell->detected_classes[i].counter;
+		return;
+	}
+	
+	assert(shell->num_detected_classes < MAX_CLASSES);
+	
+	struct class_counter * detected = &shell->detected_classes[shell->num_detected_classes++];
+	strncpy(detected->name, class_name, sizeof(detected->name));
+	++detected->counter;
+}
+
+
 static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_object * jresult)
 {
 	assert(frame->width > 1 && frame->height > 1);
@@ -441,6 +534,7 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 	
 	if(jresult)
 	{
+		shell_context_t * shell = panel->shell;
 		json_object * jdetections = NULL;
 		cairo_t * cr = cairo_create(surface);
 		
@@ -455,11 +549,15 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 			cairo_set_source_rgb(cr, 1, 1, 0);
 			cairo_select_font_face(cr, "Droid Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
 			cairo_set_font_size(cr, 12);
+			
+			clear_class_counters(shell);
+			
 			for(int i = 0; i < count; ++i)
 			{
 				json_object * jdet = json_object_array_get_idx(jdetections, i);
 				assert(jdet);
 				const char * class_name = json_get_value(jdet, string, class);
+				update_class_counter(shell, class_name);
 				
 				double x = json_get_value(jdet, double, left) * width;
 				double y = json_get_value(jdet, double, top) * height;
@@ -477,6 +575,19 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 				cairo_move_to(cr, x, y + 15);
 				cairo_show_text(cr, class_name);
 			}
+			
+			GtkListStore * store = gtk_list_store_new(LISTVIEW_COLUMNS_count, G_TYPE_INT, G_TYPE_STRING, G_TYPE_INT);
+			GtkTreeIter iter;
+			for(ssize_t i = 0; i < shell->num_detected_classes; ++i) {
+				struct class_counter * detected = &shell->detected_classes[i];
+				gtk_list_store_append(store, &iter);
+				gtk_list_store_set(store, &iter, LISTVIEW_COLUMN_index, i, 
+					LISTVIEW_COLUMN_class_name, detected->name,
+					LISTVIEW_COLUMN_counter, detected->counter, 
+					-1);
+			}
+			gtk_tree_view_set_model(shell->listview, GTK_TREE_MODEL(store));
+			g_object_unref(store);
 		}
 		
 		cairo_destroy(cr);
