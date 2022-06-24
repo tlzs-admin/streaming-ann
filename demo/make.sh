@@ -65,6 +65,13 @@ case ${target} in
 		    -lm -lpthread -ljson-c -ljpeg -lpng -lcairo -ldl \
 		    `pkg-config --libs --cflags libsoup-2.4 gio-2.0 glib-2.0`
 		;;
+	video-player|video_source2)
+		gcc -std=gnu99 -g -Wall -I../include  -D_DEBUG -D_GNU_SOURCE \
+		    -o video-player video-player.c da_panel.c video_source2.c \
+		    ../lib/libann-utils.a  \
+		    -lm -lpthread -ljson-c -ljpeg -lpng -lcairo -ldl \
+		    `pkg-config --libs --cflags gio-2.0 glib-2.0 gtk+-3.0 gstreamer-1.0`
+		;;
 
     *)
 		echo "no building rules"
