@@ -1,0 +1,35 @@
+{
+	"streams": [
+		{
+			"input": {
+				"name": "camera1",
+				"type": "io-plugin::video_source2",
+				"uri": "/dev/video0",
+			},
+			"ai-engines": [
+				{
+					"name": "yolov3",
+					"type": "ai-engine::httpclient",
+					"url": "http://127.0.0.1:9090/ai",
+				},
+			],
+		},
+	],
+	"ui": {
+		"fps": 3,
+		"colors": {
+			"default": "green", // #00ff00
+			"person": "darkblue", // #00008b
+			"bicycle": "#adff2f", // GreenYellow
+			"car": "yellow", // #ffff00
+			"bus": "#fffacd", // LemonChiffon
+			"motorbike": "#f08080", // LightCoral 
+			"train": "#ff00ff", // Magenta
+			"truck": "Orange", // #ffa500
+			"traffic light": "Wheat", // #f5deb3,
+			"book": "red",
+			"tie": "#ccccff",
+			"bed": "dfff00",
+		},
+	}
+}

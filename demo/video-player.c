@@ -43,6 +43,7 @@
 #include "ann-plugin.h"
 #include "io-input.h"
 #include "input-frame.h"
+#include "ai-engine.h"
 
 #include "utils.h"
 #include "da_panel.h"
@@ -51,6 +52,8 @@
 
 #include <stdint.h>
 #include "video_source2.h"
+
+#define AI_PLUGIN_HTTPCLIENT 	"ai-engine::httpclient"
 
 #include <libintl.h>	// gettext()
 #ifndef _
@@ -70,6 +73,9 @@ struct global_params
 	
 	struct video_source2 input[1];
 	struct shell_context * shell;
+	
+	ai_engine_t *ai;
+	json_object * jui;
 	
 	int auto_restart;
 };
@@ -103,7 +109,11 @@ struct shell_context
 	double volume; // [0.0, 1.5]
 	gboolean is_muted;
 	
+	gboolean ai_enabled;
 	
+	double fps;
+	json_object * jcolors;
+	GdkRGBA default_fg;
 };
 struct shell_context * shell_context_init(struct shell_context * shell, void * user_data);
 void shell_context_cleanup(struct shell_context * shell);
@@ -131,6 +141,7 @@ static int on_end_of_stream(struct video_source2 * video, void * user_data)
 static int global_params_parse_args(struct global_params * params, int argc, char ** argv)
 {
 	static struct option options[] = {
+		{"conf_file", required_argument, 0, 'c' }, // config file
 		{"server_url", required_argument, 0, 's' },	// AI server URL
 		{"video_src", required_argument, 0, 'v' },	// camera(local/rtsp/http) or video file
 		{"width", required_argument, 0, 'W' },
@@ -145,13 +156,16 @@ static int global_params_parse_args(struct global_params * params, int argc, cha
 	int width = 1280;
 	int height = 720;
 	const char * css_file = "video-player.css";
+	const char * conf_file = "video-player.json";
+	
 	while(1)
 	{
 		int index = 0;
-		int c = getopt_long(argc, argv, "s:v:W:H:h", options, &index);
+		int c = getopt_long(argc, argv, "c:s:v:W:H:h", options, &index);
 		if(c < 0) break;
 		switch(c)
 		{
+		case 'c': conf_file = optarg; break;
 		case 's': params->server_url = optarg; break;
 		case 'v': video_src = optarg; break;
 		case 'W': width = atoi(optarg); break;
@@ -168,21 +182,61 @@ static int global_params_parse_args(struct global_params * params, int argc, cha
 	
 	if(css_file) params->css_file = css_file;
 	
+	json_object * jconfig = NULL;
+	json_object * jstreams = NULL;
+	json_object * jinput = NULL;
+	json_object * jai_engine = NULL;
+	json_bool ok = FALSE;
+	if(conf_file) jconfig = json_object_from_file(conf_file);
+	
+	if(jconfig) {
+		ok = json_object_object_get_ex(jconfig, "streams", &jstreams);
+		if(ok && jstreams) {
+			json_object * jstream = json_object_array_get_idx(jstreams, 0); // only use the first stream
+			assert(jstream);
+			
+			ok = json_object_object_get_ex(jstream, "input", &jinput);
+			
+			json_object * jai_engines = NULL;
+			ok = json_object_object_get_ex(jstream, "ai-engines", &jai_engines);
+			if(ok && jai_engines) jai_engine = json_object_array_get_idx(jai_engines, 0); // only use the first ai-engine
+		}
+		
+		(void) json_object_object_get_ex(jconfig, "ui", &params->jui);
+		
+	}
+	
 	if(NULL == video_src) {
-		video_src = "/dev/video0";
+		if(jinput) video_src = json_get_value(jinput, string, uri);
+		else  video_src = "/dev/video0";
 		params->video_src = strdup(video_src);
 	}
 	if(width > 0) params->width = width;
 	if(height > 0) params->height = height;
 	
-	
-
 	struct video_source2 * input = video_source2_init(params->input, params);
 	assert(input);
 	input->on_eos = on_end_of_stream;
 	input->on_error = on_end_of_stream;
-	
 	input->set_uri2(input, video_src, width, height);
+	
+	if(jai_engine || params->server_url) {
+		if(NULL == jai_engine) {
+			jai_engine = json_object_new_object();
+			json_object_object_add(jai_engine, "type", json_object_new_string(AI_PLUGIN_HTTPCLIENT));
+		}
+		if(params->server_url) {
+			json_object_object_add(jai_engine, "url", json_object_new_string(params->server_url));
+		}
+		
+		ai_engine_t * ai = ai_engine_init(NULL, AI_PLUGIN_HTTPCLIENT, params);
+		assert(ai);
+		int rc = ai->init(ai, jai_engine);
+		assert(0 == rc);
+		
+		params->ai = ai;
+	}
+	
 	return 0;
 }
 
@@ -398,6 +452,12 @@ static void on_file_selection_changed(GtkFileChooser * file_chooser, struct shel
 	on_uri_changed(shell->uri_entry, shell);
 	g_free(filename);
 }
+
+static gboolean on_enable_ai_engine(GtkSwitch * switch_button, gboolean state, struct shell_context * shell)
+{
+	shell->ai_enabled = state;
+	return FALSE;
+}
 static void init_windows(struct shell_context * shell)
 {
 	struct global_params * params = shell->params;
@@ -430,6 +490,10 @@ static void init_windows(struct shell_context * shell)
 	
 	gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(header_bar), TRUE);
 	gtk_header_bar_set_title(GTK_HEADER_BAR(header_bar), "Media Player Demo");
+	
+	GtkWidget * ai_switcher = gtk_switch_new();
+	gtk_header_bar_pack_start(GTK_HEADER_BAR(header_bar), ai_switcher);
+	g_signal_connect(ai_switcher, "state-set", G_CALLBACK(on_enable_ai_engine), shell);
 	
 	GtkWidget * file_chooser = gtk_file_chooser_button_new(_("select video file"), GTK_FILE_CHOOSER_ACTION_OPEN);
 	GtkFileFilter * filter = gtk_file_filter_new();
@@ -511,6 +575,24 @@ static int shell_init(struct shell_context * shell)
 {
 	init_windows(shell);
 	
+	struct global_params * params = shell->params;
+	json_object * jcolors = NULL;
+	
+	if(params->jui) {
+		shell->fps = json_get_value(params->jui, double, fps);
+		(void)json_object_object_get_ex(params->jui, "colors", &jcolors);
+	}
+	
+	if(NULL == jcolors) {
+		jcolors = json_object_new_object();
+		json_object_object_add(jcolors, "default", json_object_new_string("green"));
+	}
+	
+	const char * default_fg = json_get_value(jcolors, string, default);
+	if(NULL == default_fg) default_fg = "green";
+	
+	shell->jcolors = jcolors;
+	gdk_rgba_parse(&shell->default_fg, default_fg);
 	return 0;
 }
 
@@ -524,7 +606,10 @@ static int shell_run(struct shell_context * shell)
 	input->play(input);
 	
 	static const double fps = 20;
-	shell->timer_id = g_timeout_add((guint)(1000.0 / fps), (GSourceFunc)on_timeout, shell);
+	
+	if(shell->fps <= 0.1 || shell->fps > 30) shell->fps = fps;
+	
+	shell->timer_id = g_timeout_add((guint)(1000.0 / shell->fps), (GSourceFunc)on_timeout, shell);
 	shell->is_running = 1;
 	gtk_main();
 	shell->is_running = 0;
@@ -572,12 +657,23 @@ static gboolean on_timeout(struct shell_context * shell)
 	long frame_number = input->get_frame(input, shell->frame_number, frame);
 	//printf("frame_number: %ld, size=%dx%d\n", input->frame_number, input->width, input->height);
 	
+	int rc = 0;
+	ai_engine_t * ai = params->ai;
+	json_object * jresult = NULL;
+	
 	if(frame_number >= 0 && frame_number != shell->frame_number) {
 		shell->frame_number = frame_number;
-		draw_frame(shell->panels[0], frame, NULL);
+		
+		if(ai && shell->ai_enabled) {
+			rc = ai->predict(ai, frame, &jresult);
+			if(rc) {
+				// err
+			}
+		}
+		draw_frame(shell->panels[0], frame, jresult);
 		input_frame_clear(frame);
-	}
-	
+		if(jresult) json_object_put(jresult);
+	}	
 	shell->is_busy = 0;
 	
 	static const int update_freq = 1;
@@ -590,6 +686,9 @@ static gboolean on_timeout(struct shell_context * shell)
 
 static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_object * jresult)
 {
+	assert(panel && panel->shell);
+	
+	struct shell_context * shell = panel->shell;
 	if(frame->width <= 1 || frame->height <= 1) return;
 	assert(frame->width > 1 && frame->height > 1);
 	
@@ -617,6 +716,90 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 	
 	memcpy(panel->image_data, frame->data, frame->width * frame->height * 4);
 	cairo_surface_mark_dirty(surface);
+	
+	const bgra_image_t * bgra = frame->bgra;
+	double font_size = (double)bgra->height / 32; 
+	if(jresult)
+	{
+		json_object * jdetections = NULL;
+		cairo_t * cr = cairo_create(surface);
+		
+		json_bool ok = json_object_object_get_ex(jresult, "detections", &jdetections);
+		
+		double width = frame->width;
+		double height = frame->height;
+		if(ok && jdetections)
+		{
+			int count = json_object_array_length(jdetections);
+			cairo_set_line_width(cr, 2);
+			
+			cairo_select_font_face(cr, "Mono", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+			cairo_set_font_size(cr, font_size);
+			
+			//~ clear_class_counters(shell);
+			for(int i = 0; i < count; ++i)
+			{
+				gboolean color_parsed = FALSE;
+				GdkRGBA fg_color;
+				
+				
+				json_object * jdet = json_object_array_get_idx(jdetections, i);
+				assert(jdet);
+				const char * class_name = json_get_value(jdet, string, class);
+				
+				if(class_name) {
+					json_object * jcolor = NULL;
+					const char * color = NULL;
+					ok = json_object_object_get_ex(shell->jcolors, class_name, &jcolor);
+					if(ok && jcolor) color = json_object_get_string(jcolor);
+					if(color) color_parsed = gdk_rgba_parse(&fg_color, color);
+					
+					//~ update_class_counter(shell, class_name);
+				}
+				
+				if(!color_parsed) fg_color = shell->default_fg;
+				
+				double x = json_get_value(jdet, double, left) * width;
+				double y = json_get_value(jdet, double, top) * height;
+				double cx = json_get_value(jdet, double, width);
+				
+				cx *= width;
+				
+				double cy = json_get_value(jdet, double, height) * height;
+				
+				cairo_text_extents_t extents;
+				cairo_text_extents(cr, class_name, &extents);
+				cairo_set_source_rgba(cr, 0.6, 0.6, 0.6, 0.8);
+				cairo_rectangle(cr, x - 2, y - 2, 
+					extents.width + 4, 
+					extents.height + extents.y_advance + 4 - extents.y_bearing);
+				cairo_fill(cr); 
+				
+				cairo_set_source_rgb(cr, fg_color.red, fg_color.green, fg_color.blue);
+				cairo_rectangle(cr, x, y, cx, cy);
+				cairo_stroke(cr);
+				
+				cairo_move_to(cr, x, y + font_size);
+				cairo_show_text(cr, class_name);
+				cairo_stroke(cr);
+			}
+			
+			//~ GtkListStore * store = gtk_list_store_new(LISTVIEW_COLUMNS_count, G_TYPE_INT, G_TYPE_STRING, G_TYPE_INT);
+			//~ GtkTreeIter iter;
+			//~ for(ssize_t i = 0; i < shell->num_detected_classes; ++i) {
+				//~ struct class_counter * detected = &shell->detected_classes[i];
+				//~ gtk_list_store_append(store, &iter);
+				//~ gtk_list_store_set(store, &iter, LISTVIEW_COLUMN_index, (gint)i, 
+					//~ LISTVIEW_COLUMN_class_name, detected->name,
+					//~ LISTVIEW_COLUMN_counter, (gint)detected->counter, 
+					//~ -1);
+			//~ }
+			//~ gtk_tree_view_set_model(shell->listview, GTK_TREE_MODEL(store));
+			//~ g_object_unref(store);
+		}
+		
+		cairo_destroy(cr);
+	}
 	
 	
 	gtk_widget_queue_draw(panel->da);
