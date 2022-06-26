@@ -63,8 +63,12 @@ enum video_source_subtype
 	video_source_subtype_default,
 	video_source_subtype_hls = 1,
 	video_source_subtype_youtube = 2,
-	video_source_subtype_mp4 = 0x8100,
-	video_source_subtype_mkv = 0x8200,
+	
+	video_source_subtype_file_mask = 0xFF00,
+	video_source_subtype_mp4  = 0x100,
+	video_source_subtype_mkv  = 0x200,
+	video_source_subtype_rmvb = 0x300,
+	video_source_subtype_avi  = 0x400,
 };
 
 static const char * s_video_source_protocols[video_source_types_count] = {
@@ -85,7 +89,7 @@ static gboolean is_regular_file(const char *path_name)
 	
 	return ((st->st_mode & S_IFMT) == S_IFREG);
 }
-static gboolean is_video_file(const char * path_name, char **p_content_type)
+static gboolean is_video_file(const char * path_name, char **p_content_type, int * p_subtype)
 {
 	if(!is_regular_file(path_name)) return FALSE;
 	gchar * content_type = NULL;
@@ -96,16 +100,30 @@ static gboolean is_video_file(const char * path_name, char **p_content_type)
 		return FALSE;
 	}
 	
-	*p_content_type = content_type;
-	return (g_content_type_equals(content_type, "video/mp4") 
-		 || g_content_type_equals(content_type, "video/mpeg") == 0
-		 || g_content_type_equals(content_type, "video/quicktime") == 0
-		 || g_content_type_equals(content_type, "video/webm") == 0
-		 || g_content_type_equals(content_type, "video/x-flv") == 0
-		 || g_content_type_equals(content_type, "video/x-matroska") == 0
-		 || g_content_type_equals(content_type, "video/x-msvideo") == 0
-		 || g_content_type_equals(content_type, "video/x-ms-wmv") == 0
-		 || 0);
+	gboolean ret = TRUE;
+	int subtype = video_source_subtype_default;
+	if(g_content_type_equals(content_type, "video/mp4")) {
+		subtype |= video_source_subtype_mp4;
+	}else if(g_content_type_equals(content_type, "video/x-matroska")) {
+		subtype |= video_source_subtype_mkv;
+	}else if(g_content_type_equals(content_type, "application/vnd.rn-realmedia")) {
+		subtype |= video_source_subtype_rmvb;
+	}else if(g_content_type_equals(content_type, "video/x-msvideo")) {
+		subtype |= video_source_subtype_avi;
+	}else {
+		ret = g_content_type_equals(content_type, "video/mpeg") 
+		 || g_content_type_equals(content_type, "video/quicktime") 
+		 || g_content_type_equals(content_type, "video/webm") 
+		 || g_content_type_equals(content_type, "video/x-flv") 
+		 || g_content_type_equals(content_type, "video/x-ms-wmv") 
+		 || 0;
+	}
+	if(p_subtype) *p_subtype = subtype;
+
+	if(p_content_type) *p_content_type = content_type;
+	else g_free(content_type);
+	
+	return ret;
 }
 
 enum video_source_type video_source2_type_from_uri(const char * uri, int * p_subtype)
@@ -122,19 +140,10 @@ enum video_source_type video_source2_type_from_uri(const char * uri, int * p_sub
 	if(type == video_source_types_count) {
 		if(strncasecmp(uri, PROTOCOL_file, sizeof(PROTOCOL_file) - 1) == 0) uri += sizeof(PROTOCOL_file) - 1;
 		
-		char * content_type = NULL;
-		gboolean ok = is_video_file(uri, &content_type);
+		gboolean ok = is_video_file(uri, NULL, &subtype);
 		if(ok) type = video_source_type_file;
-		
-		if(content_type) {
-			if(g_content_type_equals(content_type, "video/mp4")) subtype |= video_source_subtype_mp4;
-			else if(g_content_type_equals(content_type, "video/x-matroska")) subtype |= video_source_subtype_mkv;
-			
-			g_free(content_type);
-		}
 	}
-	
-	if(type == video_source_type_https) {
+	else if(type == video_source_type_https) {
 		uri += strlen(s_video_source_protocols[type]);
 		if(strncasecmp(uri, "www.youtube.com", sizeof("www.youtube.com") - 1) == 0) {
 			subtype |= video_source_subtype_youtube;
@@ -400,6 +409,14 @@ static int video_source2_set_uri2(struct video_source2 * video, const char * uri
 				" demux.audio_0 ! queue silent=true ! decodebin ! audioconvert ! audioresample "
 				" ! volume name=\"audio_volume\" volume=0.5 ! autoaudiosink "
 				" demux.video_0 ! queue silent=true ! decodebin ! videoconvert ";
+	static const char * rmvb_decoder = " rmdemux name=demux "
+				//~ " demux.audio_0 ! queue ! decodebin ! audioconvert ! audioresample "   ///< @BUG unable to sync with audio channels 
+				//~ " ! volume name=\"audio_volume\" volume=0.5 ! autoaudiosink "
+				" demux.video_0 ! queue silent=true ! decodebin ! videoconvert ";
+	static const char * avi_decoder = " avidemux name=demux "
+				" demux.audio_0 ! queue ! decodebin ! audioconvert ! audioresample "   ///< @BUG unable to sync with audio channels 
+				" ! volume name=\"audio_volume\" volume=0.5 ! autoaudiosink "
+				" demux.video_0 ! queue silent=true ! decodebin ! videoconvert ";
 	
 
 #define BGRA_PIPELINE " ! videoscale ! video/x-raw,format=BGRA,width=%d,height=%d ! videoconvert ! identity name=filter ! fakesink name=sink sync=true"
@@ -414,13 +431,16 @@ static int video_source2_set_uri2(struct video_source2 * video, const char * uri
 	case video_source_type_file: 
 		if(strncasecmp(uri, PROTOCOL_file, sizeof(PROTOCOL_file) - 1) == 0) uri += sizeof(PROTOCOL_file) - 1;
 		
-		if((subtype & video_source_subtype_mp4) == video_source_subtype_mp4) {
-			decoder = mp4_decoder;
-		}else if((subtype & video_source_subtype_mkv) == video_source_subtype_mkv) {
-			decoder = mkv_decoder;
-			printf("mkv...\n");
+		subtype &= video_source_subtype_file_mask;
+		printf("subtype: %x\n", subtype);
+		switch(subtype) {
+		case video_source_subtype_mp4:  decoder = mp4_decoder;  break;
+		case video_source_subtype_mkv:  decoder = mkv_decoder;  break;
+		case video_source_subtype_rmvb: decoder = rmvb_decoder; break;
+		case video_source_subtype_avi:  decoder = avi_decoder;  break;
+		default:
+			break;
 		}
-		
 		snprintf(gst_command, sizeof(gst_command), 	
 			"filesrc location=\"%s\" ! %s " BGRA_PIPELINE,
 			uri, decoder,

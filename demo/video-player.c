@@ -441,6 +441,7 @@ static void init_windows(struct shell_context * shell)
 	gtk_file_filter_add_mime_type(filter, "video/x-matroska");
 	gtk_file_filter_add_mime_type(filter, "video/x-msvideo");
 	gtk_file_filter_add_mime_type(filter, "video/x-ms-wmv");
+	gtk_file_filter_add_mime_type(filter, "application/vnd.rn-realmedia");
 	gtk_file_chooser_set_filter(GTK_FILE_CHOOSER(file_chooser), filter);
 	g_signal_connect(file_chooser, "file-set", G_CALLBACK(on_file_selection_changed), shell);
 	gtk_header_bar_pack_start(GTK_HEADER_BAR(header_bar), file_chooser);
