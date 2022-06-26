@@ -39,16 +39,20 @@ struct video_source2
 	GstState state;		/* Current state of the pipeline */
 	gint64 duration;  	/* Duration of the video, in nanoseconds */
 
+	// methods
 	int (*set_uri2)(struct video_source2 * video, const char * uri, int width, int height);
-	
 	long (*get_frame)(struct video_source2 * video, long frame_number, input_frame_t frame[1]);
 	
 	int (* play)(struct video_source2 * video);
 	int (* pause)(struct video_source2 * video);
 	int (* stop)(struct video_source2 * video);
-	
 	int (* seek)(struct video_source2 * video, int64_t position);
-	int (* set_volume)(struct video_source2 * video, double volume_percent);
+	int (* set_volume)(struct video_source2 * video, double volume);
+	
+	// callbacks
+	int (* on_eos)(struct video_source2 * video, void * user_data);
+	int (* on_error)(struct video_source2 * video, void * user_data);
+	int (* on_state_changed)(struct video_source2 * video, GstState old_state, GstState new_state, void * user_data);
 };
 struct video_source2 * video_source2_init(struct video_source2 * video, void * user_data);
 void video_source2_cleanup(struct video_source2 * video);

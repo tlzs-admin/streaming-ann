@@ -52,8 +52,10 @@
 #include <stdint.h>
 #include "video_source2.h"
 
-
-
+#include <libintl.h>	// gettext()
+#ifndef _
+#define _(str) gettext(str)
+#endif
 
 struct shell_context;
 struct global_params
@@ -86,6 +88,7 @@ struct shell_context
 	GtkWidget * uri_entry;
 	char uri[PATH_MAX];
 	
+	GtkWidget * play_pause_button;
 	GtkWidget * slider;
 	gulong slider_update_handler;
 	
@@ -93,8 +96,14 @@ struct shell_context
 	guint timer_id;
 	long frame_number;
 	int quit;
+	int is_running;
 	int paused;
 	int is_busy;
+
+	double volume; // [0.0, 1.5]
+	gboolean is_muted;
+	
+	
 };
 struct shell_context * shell_context_init(struct shell_context * shell, void * user_data);
 void shell_context_cleanup(struct shell_context * shell);
@@ -106,6 +115,19 @@ static void print_usuage(int argc, char ** argv)
 	printf("Usuage: %s [--server_url=<url>] [--video_src=<rtsp://camera_ip>] \n", argv[0]);
 	return;
 }
+
+static int on_end_of_stream(struct video_source2 * video, void * user_data)
+{
+	struct global_params * params = user_data;
+	assert(params);
+	struct shell_context * shell = params->shell;
+	assert(shell);
+	if(NULL == shell) return -1;
+	
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(shell->play_pause_button), TRUE);
+	return 0;
+}
+
 static int global_params_parse_args(struct global_params * params, int argc, char ** argv)
 {
 	static struct option options[] = {
@@ -113,6 +135,7 @@ static int global_params_parse_args(struct global_params * params, int argc, cha
 		{"video_src", required_argument, 0, 'v' },	// camera(local/rtsp/http) or video file
 		{"width", required_argument, 0, 'W' },
 		{"height", required_argument, 0, 'H' },	
+		{"style", required_argument, 0, 'S'},	// css filename
 		{"help", no_argument, 0, 'h' },
 		{NULL, 0, 0, 0 },
 	};
@@ -121,6 +144,7 @@ static int global_params_parse_args(struct global_params * params, int argc, cha
 	
 	int width = 1280;
 	int height = 720;
+	const char * css_file = "video-player.css";
 	while(1)
 	{
 		int index = 0;
@@ -132,6 +156,7 @@ static int global_params_parse_args(struct global_params * params, int argc, cha
 		case 'v': video_src = optarg; break;
 		case 'W': width = atoi(optarg); break;
 		case 'H': height = atoi(optarg); break;
+		case 'S': css_file = optarg; break;
 		case 'h': 
 		default:
 			print_usuage(argc, argv); exit(0);
@@ -140,6 +165,8 @@ static int global_params_parse_args(struct global_params * params, int argc, cha
 	
 	if(video_src) params->video_src = strdup(video_src);
 	else video_src = params->video_src;
+	
+	if(css_file) params->css_file = css_file;
 	
 	if(NULL == video_src) {
 		video_src = "/dev/video0";
@@ -152,6 +179,9 @@ static int global_params_parse_args(struct global_params * params, int argc, cha
 
 	struct video_source2 * input = video_source2_init(params->input, params);
 	assert(input);
+	input->on_eos = on_end_of_stream;
+	input->on_error = on_end_of_stream;
+	
 	input->set_uri2(input, video_src, width, height);
 	return 0;
 }
@@ -232,18 +262,18 @@ static void on_uri_changed(GtkWidget * widget, struct shell_context * shell)
 	struct global_params * params = shell->params;
 
 	const char * uri = gtk_entry_get_text(GTK_ENTRY(uri_entry));
-	if(uri && uri[0] && strcmp(uri, params->video_src)) {
+	if(uri && uri[0] && strcmp(uri, shell->uri) != 0) {
+		strncpy(shell->uri, uri, sizeof(shell->uri));
+		
 		struct video_source2 * video = params->input;
-
-		shell->paused = 1;
-		
+		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(shell->play_pause_button), TRUE);
+		shell->is_running = 0;
 		video->stop(video);
-		sleep(1);
-		
 		int rc = video->set_uri2(video, uri, params->width, params->height);
+		rc = video->play(video);
 		if(0 == rc) {
-			video->play(video);
-			shell->paused = 0;
+			shell->is_running = 1;
+			gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(shell->play_pause_button), FALSE);
 		}else {
 			fprintf(stderr, "invalid uri: %s\n", uri);
 		}
@@ -251,7 +281,34 @@ static void on_uri_changed(GtkWidget * widget, struct shell_context * shell)
 }
 
 
-static void on_play_clicked(GtkWidget * button, struct shell_context * shell);
+static void on_play_pause_toggled(GtkWidget * button, struct shell_context * shell)
+{
+	struct global_params * params = shell->params;
+	assert(params && params->input);
+	struct video_source2 * video = params->input;
+	
+	if(NULL == button) button = shell->play_pause_button;
+	
+	int rc = 0;
+	int is_paused = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(button));
+	shell->paused = is_paused;
+	
+	GtkWidget * icon = gtk_image_new_from_icon_name(is_paused?"media-playback-pause":"media-playback-start", GTK_ICON_SIZE_BUTTON);
+	gtk_button_set_image(GTK_BUTTON(button), icon);
+	if(is_paused) {
+		rc = video->pause(video);
+		if(0 == rc) {
+			gtk_header_bar_set_subtitle(GTK_HEADER_BAR(shell->header_bar), "paused");
+		}
+	}else {
+		rc = video->play(video);
+		if(0 == rc) {
+			gtk_header_bar_set_subtitle(GTK_HEADER_BAR(shell->header_bar), video->uri);
+			shell->paused = 0;
+		}
+	}
+}
+
 static void on_slider_value_changed(GtkRange * slider, struct shell_context * shell)
 {
 	struct global_params * params = shell->params;
@@ -262,7 +319,11 @@ static void on_slider_value_changed(GtkRange * slider, struct shell_context * sh
 	gst_element_seek_simple(video->pipeline, GST_FORMAT_TIME, 
 		GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_KEY_UNIT,
 		(gint64)(value * GST_SECOND));
-	on_play_clicked(NULL, shell);
+	
+	if(shell->paused) {
+		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(shell->play_pause_button), TRUE);
+	}
+	
 	return;
 }
 
@@ -273,51 +334,74 @@ static void on_audio_volume_changed(GtkRange * slider, struct shell_context * sh
 	struct video_source2 * video = params->input;
 
 	double value = gtk_range_get_value(slider);
-	if(value >= 0 && value <= 1.0) video->set_volume(video, value);
+	if(value >= 0 && value <= 1.5) {
+		shell->volume = value;
+		video->set_volume(video, value);
+	}
 	return;
 }
 
-static void on_play_clicked(GtkWidget * button, struct shell_context * shell)
+static void on_mute_toggled(GtkToggleButton * button, struct shell_context * shell)
 {
 	struct global_params * params = shell->params;
 	assert(params && params->input);
 	struct video_source2 * video = params->input;
-	int rc = video->play(video);
+	shell->is_muted = gtk_toggle_button_get_active(button);
 	
-	if(0 == rc) {
-		gtk_header_bar_set_subtitle(GTK_HEADER_BAR(shell->header_bar), video->uri);
-		shell->paused = 0;
-	}
-	
+	video->set_volume(video, shell->is_muted?-1:shell->volume);
+	return;
 }
 
-static void on_pause_clicked(GtkWidget * button, struct shell_context * shell)
+static void on_popup_volume_control(GtkWidget * button, struct shell_context * shell)
 {
-	struct global_params * params = shell->params;
-	assert(params && params->input);
-	struct video_source2 * video = params->input;
-	shell->paused = 1;
+	GtkWidget * popup = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+	gtk_container_set_border_width(GTK_CONTAINER(popup), 1);
 	
-	int rc = video->pause(video);
-	if(0 == rc) {
-		gtk_header_bar_set_subtitle(GTK_HEADER_BAR(shell->header_bar), "paused");
-	}
+	GtkWidget * scale = gtk_scale_new_with_range(GTK_ORIENTATION_VERTICAL, 0.0, 1.5, 0.05);
+	gtk_range_set_inverted(GTK_RANGE(scale), TRUE);
+	gtk_container_add(GTK_CONTAINER(popup), scale);
+	gtk_widget_set_size_request(scale, 10, 128);
+	gtk_range_set_value(GTK_RANGE(scale), shell->volume);
+	g_signal_connect(scale, "value-changed", G_CALLBACK(on_audio_volume_changed), shell);
+	
+	gtk_window_set_transient_for(GTK_WINDOW(popup), GTK_WINDOW(shell->window));
+	gtk_window_set_decorated(GTK_WINDOW(popup), FALSE);
+	gtk_window_set_resizable(GTK_WINDOW(popup), FALSE);
+	gtk_window_set_skip_taskbar_hint(GTK_WINDOW(popup), TRUE);
+	gtk_window_set_destroy_with_parent(GTK_WINDOW(popup), TRUE);
+	gtk_window_set_position(GTK_WINDOW(popup), GTK_WIN_POS_MOUSE);
+	
+	gtk_widget_set_events(popup, GDK_FOCUS_CHANGE_MASK);
+	g_signal_connect(popup, "focus-out-event", G_CALLBACK(gtk_widget_destroy), NULL);
+	
+	gtk_widget_show_all(popup);
+	gtk_widget_grab_focus(popup);
+	
+	return;
 }
 
-
-static void on_stop_clicked(GtkWidget * button, struct shell_context * shell)
+static gchar * format_timer_slider_value(GtkScale * scale, gdouble value)
 {
-	struct global_params * params = shell->params;
-	assert(params && params->input);
-	struct video_source2 * video = params->input;
-	shell->paused = 1;
+	char buf[100] = "";
 	
-	int rc = video->stop(video);
-	if(0 == rc) {
-		gtk_header_bar_set_subtitle(GTK_HEADER_BAR(shell->header_bar), "stopped");
-	}
+	int64_t value_i64 = (int64_t)value;
+	int hours = value_i64 / 3600;
+	int minutes = (value_i64 % 3600) / 60;
+	int seconds = (value_i64 % 60);
+	
+	snprintf(buf, sizeof(buf), "%.2d:%.2d:%.2d", hours, minutes, seconds);
+	return strdup(buf);
 }
 
+static void on_file_selection_changed(GtkFileChooser * file_chooser, struct shell_context * shell)
+{
+	gchar *filename = gtk_file_chooser_get_filename(file_chooser);
+	if(NULL == filename) return;
+	
+	gtk_entry_set_text(GTK_ENTRY(shell->uri_entry), filename);
+	on_uri_changed(shell->uri_entry, shell);
+	g_free(filename);
+}
 static void init_windows(struct shell_context * shell)
 {
 	struct global_params * params = shell->params;
@@ -351,19 +435,20 @@ static void init_windows(struct shell_context * shell)
 	gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(header_bar), TRUE);
 	gtk_header_bar_set_title(GTK_HEADER_BAR(header_bar), "Media Player Demo");
 	
-
-	GtkWidget * hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 1);
-	GtkWidget * play = gtk_button_new_from_icon_name("media-playback-start", GTK_ICON_SIZE_BUTTON);
-	GtkWidget * stop = gtk_button_new_from_icon_name("media-playback-stop", GTK_ICON_SIZE_BUTTON);
-	GtkWidget * pause = gtk_button_new_from_icon_name("media-playback-pause", GTK_ICON_SIZE_BUTTON);
-	gtk_box_pack_start(GTK_BOX(hbox), play, FALSE, TRUE, 1);
-	gtk_box_pack_start(GTK_BOX(hbox), pause, FALSE, TRUE, 1);
-	gtk_box_pack_start(GTK_BOX(hbox), stop, FALSE, TRUE, 1);
-	gtk_header_bar_pack_start(GTK_HEADER_BAR(header_bar), hbox);
+	GtkWidget * file_chooser = gtk_file_chooser_button_new(_("select video file"), GTK_FILE_CHOOSER_ACTION_OPEN);
+	GtkFileFilter * filter = gtk_file_filter_new();
+	gtk_file_filter_set_name(filter, "video files");
+	gtk_file_filter_add_mime_type(filter, "video/mp4");
+	gtk_file_filter_add_mime_type(filter, "video/quicktime");
+	gtk_file_filter_add_mime_type(filter, "video/mpeg");
+	gtk_file_filter_add_mime_type(filter, "video/webm");
+	gtk_file_filter_add_mime_type(filter, "video/x-matroska");
+	gtk_file_filter_add_mime_type(filter, "video/x-msvideo");
+	gtk_file_filter_add_mime_type(filter, "video/x-ms-wmv");
+	gtk_file_chooser_set_filter(GTK_FILE_CHOOSER(file_chooser), filter);
+	g_signal_connect(file_chooser, "file-set", G_CALLBACK(on_file_selection_changed), shell);
+	gtk_header_bar_pack_start(GTK_HEADER_BAR(header_bar), file_chooser);
 	
-	g_signal_connect(play, "clicked", G_CALLBACK(on_play_clicked), shell);
-	g_signal_connect(stop, "clicked", G_CALLBACK(on_stop_clicked), shell);
-	g_signal_connect(pause, "clicked", G_CALLBACK(on_pause_clicked), shell);
 	
 	int row = 0;
 	GtkWidget * uri_entry = gtk_search_entry_new();
@@ -385,42 +470,39 @@ static void init_windows(struct shell_context * shell)
 	panel->keep_ratio = 1;
 	
 	
-	hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 1);
+	GtkWidget * hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 1);
+	GtkWidget * slider = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0, 1.0, 0.001);
+	gtk_widget_set_hexpand(slider, TRUE);
+	gtk_scale_set_draw_value(GTK_SCALE(slider), TRUE);
+	gtk_scale_set_value_pos(GTK_SCALE(slider), GTK_POS_RIGHT);
+	shell->slider_update_handler = g_signal_connect(slider, "value-changed", G_CALLBACK(on_slider_value_changed), shell);
+	g_signal_connect(slider, "format-value", G_CALLBACK(format_timer_slider_value), shell);
+	shell->slider = slider;
+	
+	GtkWidget * play_pause_button = gtk_toggle_button_new();
+	GtkWidget * pause_icon = gtk_image_new_from_icon_name("media-playback-start", GTK_ICON_SIZE_BUTTON);
+	gtk_button_set_image(GTK_BUTTON(play_pause_button), pause_icon);
+	g_signal_connect(play_pause_button, "toggled", G_CALLBACK(on_play_pause_toggled), shell);
+	
+	shell->play_pause_button = play_pause_button;
+	
+	gtk_box_pack_start(GTK_BOX(hbox), play_pause_button, FALSE, TRUE, 1);
+	gtk_box_pack_start(GTK_BOX(hbox), slider, FALSE, TRUE, 1);
 	
 	
+	shell->volume = 0.5;
+	GtkWidget * volume_icon = gtk_button_new_from_icon_name("audio-volume-medium", GTK_ICON_SIZE_BUTTON);
+	g_signal_connect(volume_icon, "clicked", G_CALLBACK(on_popup_volume_control), shell);
+	gtk_box_pack_end(GTK_BOX(hbox), volume_icon, FALSE, TRUE, 1);
 	
-	GtkWidget * go_first = gtk_button_new_from_icon_name("media-skip-backward", GTK_ICON_SIZE_BUTTON);
-	GtkWidget * go_prev = gtk_button_new_from_icon_name("media-seek-backward", GTK_ICON_SIZE_BUTTON);
-	GtkWidget * go_next = gtk_button_new_from_icon_name("media-seek-forward", GTK_ICON_SIZE_BUTTON);
-	GtkWidget * go_last = gtk_button_new_from_icon_name("media-skip-forward", GTK_ICON_SIZE_BUTTON);
-	GtkWidget * repeat = gtk_button_new_from_icon_name("media-playlist-repeat", GTK_ICON_SIZE_BUTTON);
-	GtkWidget * scale = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0, 1.0, 0.001);
-	gtk_widget_set_hexpand(scale, TRUE);
-	gtk_scale_set_draw_value(GTK_SCALE(scale), TRUE);
-	shell->slider_update_handler = g_signal_connect(scale, "value-changed", G_CALLBACK(on_slider_value_changed), shell);
-	shell->slider = scale;
-	gtk_grid_attach(GTK_GRID(grid), scale, 0, row++, 1, 1);
-	
-	gtk_box_pack_start(GTK_BOX(hbox), go_first, FALSE, TRUE, 1);
-	gtk_box_pack_start(GTK_BOX(hbox), go_prev, FALSE, TRUE, 1);
-	gtk_box_pack_start(GTK_BOX(hbox), go_next, FALSE, TRUE, 1);
-	gtk_box_pack_start(GTK_BOX(hbox), go_last, FALSE, TRUE, 1);
-	gtk_box_pack_start(GTK_BOX(hbox), repeat, FALSE, TRUE, 1);
-	
-	GtkWidget * volume_control = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0, 1.0, 0.05);
-	g_signal_connect(volume_control, "value-changed", G_CALLBACK(on_audio_volume_changed), shell);
-	gtk_scale_set_value_pos(GTK_SCALE(volume_control), GTK_POS_LEFT);
-	gtk_range_set_value(GTK_RANGE(volume_control), 0.5);
-	gtk_scale_set_digits(GTK_SCALE(volume_control), 2);
-	gtk_widget_set_size_request(volume_control, 200, -1);
-	gtk_box_pack_end(GTK_BOX(hbox), volume_control, FALSE, TRUE, 1);
-	
-	GtkWidget * mute = gtk_button_new_from_icon_name("audio-volume-muted", GTK_ICON_SIZE_BUTTON);
+	GtkWidget * mute = gtk_toggle_button_new();
+	GtkWidget * icon = gtk_image_new_from_icon_name("audio-volume-muted", GTK_ICON_SIZE_BUTTON);
+	gtk_button_set_image(GTK_BUTTON(mute), icon);
+	g_signal_connect(mute, "toggled", G_CALLBACK(on_mute_toggled), shell);
 	gtk_box_pack_end(GTK_BOX(hbox), mute, FALSE, TRUE, 1);
 	
 	
-	
-	gtk_grid_attach(GTK_GRID(grid), hbox, 0, row++, 1, 1);
+	gtk_grid_attach(GTK_GRID(grid), hbox, 0, row++, 2, 1);
 	
 	g_signal_connect_swapped(window, "destroy", G_CALLBACK(shell_stop), shell);
 	
@@ -446,8 +528,9 @@ static int shell_run(struct shell_context * shell)
 	
 	static const double fps = 20;
 	shell->timer_id = g_timeout_add((guint)(1000.0 / fps), (GSourceFunc)on_timeout, shell);
+	shell->is_running = 1;
 	gtk_main();
-	
+	shell->is_running = 0;
 	shell->quit = 1;
 	if(shell->timer_id) {
 		g_source_remove(shell->timer_id);
@@ -477,12 +560,12 @@ static gboolean on_timeout(struct shell_context * shell)
 		shell->timer_id = 0;
 		return G_SOURCE_REMOVE;
 	}
+	if(shell->paused || shell->is_busy || !shell->is_running) return G_SOURCE_CONTINUE;
 	
 	struct global_params * params = shell->params;
 	assert(params && params->input);
 	
 	struct video_source2 * input = params->input;
-	if(shell->paused || shell->is_busy) return G_SOURCE_CONTINUE;
 	if(input->state < GST_STATE_PAUSED) return G_SOURCE_CONTINUE;
 	
 	shell->is_busy = 1;
@@ -500,7 +583,8 @@ static gboolean on_timeout(struct shell_context * shell)
 	
 	shell->is_busy = 0;
 	
-	if((frame_number % 5) == 0) shell_update_ui(params);
+	static const int update_freq = 1;
+	if((frame_number % update_freq) == 0) shell_update_ui(params);
 	return G_SOURCE_CONTINUE;
 }
 

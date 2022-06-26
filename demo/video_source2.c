@@ -175,8 +175,11 @@ static gboolean video_source_on_eos(GstBus * bus, GstMessage * message, struct v
 {
 	debug_printf("%s()...\n", __FUNCTION__);
 	g_print ("End-Of-Stream reached.\n");
-	gst_element_set_state(video->pipeline, GST_STATE_NULL);
-	gst_element_set_state (video->pipeline, GST_STATE_READY);
+	gst_element_set_state(video->pipeline, GST_STATE_READY);
+	video->is_running = 0;
+	video->stopped = 1;
+	
+	if(video->on_eos) video->on_eos(video, video->user_data);
 	return FALSE;
 }
 static gboolean video_source_on_error(GstBus * bus, GstMessage * message, struct video_source2 * video)
@@ -196,10 +199,11 @@ static gboolean video_source_on_error(GstBus * bus, GstMessage * message, struct
 	g_error_free(gerr);
 	g_free(debug_info);
 	
-	gst_element_set_state(video->pipeline, GST_STATE_NULL);
 	gst_element_set_state(video->pipeline, GST_STATE_READY);
 	video->is_running = 0;
-	video->stopped = 0;
+	video->stopped = 1;
+	
+	if(video->on_error) video->on_error(video, video->user_data);
 	
 	return FALSE;
 }
@@ -220,6 +224,8 @@ static void on_state_changed(GstBus * bus, GstMessage * message, struct video_so
 		}else if(new_state == GST_STATE_READY || new_state == GST_STATE_NULL) {
 			video->stopped = 1;
 		}
+		
+		if(video->on_state_changed) video->on_state_changed(video, old_state, new_state, video->user_data);
 	}
 	return;
 }
@@ -320,8 +326,11 @@ static void on_application(GstBus * bus, GstMessage * msg, void * user_data)
 
 static GstElement * relaunch_pipeline(const char * gst_command, struct video_source2 * video)
 {
+	debug_printf("%s(): gst_command=\ngst-launch-1.0 %s", __FUNCTION__, gst_command);
 	video->is_running = 0;
 	if(video->pipeline) {
+		gst_element_set_state(video->pipeline, GST_STATE_NULL);
+		gst_element_get_state(video->pipeline, &video->state, NULL, GST_CLOCK_TIME_NONE);
 		gst_object_unref(video->pipeline);
 		video->pipeline = NULL;
 	}
@@ -381,9 +390,9 @@ static int video_source2_set_uri2(struct video_source2 * video, const char * uri
 	static const char * default_decoder = " decodebin ! videoconvert ";
 	static const char * hls_decoder = " hlsdemux ! decodebin ! videoconvert ";
 	static const char * mp4_decoder = " qtdemux name=demux "
-				" demux.audio_0 ! queue ! decodebin ! audioconvert ! audioresample "
+				" demux.audio_0 ! queue silent=true ! decodebin ! audioconvert ! audioresample "
 				" ! volume name=\"audio_volume\" volume=0.5 ! autoaudiosink "
-				" demux.video_0 ! queue ! decodebin ! videoconvert ";
+				" demux.video_0 ! queue silent=true ! decodebin ! videoconvert ";
 
 #define BGRA_PIPELINE " ! videoscale ! video/x-raw,format=BGRA,width=%d,height=%d ! videoconvert ! identity name=filter ! fakesink name=sink sync=true"
 
@@ -443,7 +452,7 @@ static int video_source2_play(struct video_source2 * video);
 static int video_source2_pause(struct video_source2 * video);
 static int video_source2_stop(struct video_source2 * video);
 static int video_source2_seek(struct video_source2 * video, int64_t position);
-static int video_source2_set_volume(struct video_source2 * video, double percent);
+static int video_source2_set_volume(struct video_source2 * video, double volume);
 struct video_source2 * video_source2_init(struct video_source2 * video, void * user_data)
 {
 	if(NULL == video) video = calloc(1, sizeof(*video));
@@ -513,11 +522,19 @@ static int video_source2_seek(struct video_source2 * video, int64_t position)
 {
 	return 0;
 }
-static int video_source2_set_volume(struct video_source2 * video, double percent)
+static int video_source2_set_volume(struct video_source2 * video, double volume)
 {
-	if(percent < 0 || percent > 1) return -1;
+	if(volume == -1) {
+		g_object_set(G_OBJECT(video->audio_volume), "mute", (gboolean)TRUE, NULL);
+		return 0;
+	}
+	
+	if(volume < 0 || volume > 1.5) return -1;
 	if(video->audio_volume) {
-		g_object_set(G_OBJECT(video->audio_volume), "volume", percent, NULL); 
+		g_object_set(G_OBJECT(video->audio_volume), 
+			"mute", (gboolean)FALSE, 
+			"volume", volume, 
+			NULL); 
 	}
 	
 	return 0;

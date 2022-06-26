@@ -96,10 +96,10 @@ struct da_panel * da_panel_init(struct da_panel * panel, int image_width, int im
 	GtkWidget * frame = gtk_frame_new(NULL);
 	
 
-	GtkWidget * scrollbar = gtk_scrollbar_new(GTK_ORIENTATION_VERTICAL, NULL);
+//	GtkWidget * scrollbar = gtk_scrollbar_new(GTK_ORIENTATION_VERTICAL, NULL);
 	GtkWidget * hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 	gtk_box_pack_start(GTK_BOX(hbox), da, TRUE, TRUE, 0);
-	gtk_box_pack_end(GTK_BOX(hbox), scrollbar, FALSE, TRUE, 0);
+//	gtk_box_pack_end(GTK_BOX(hbox), scrollbar, FALSE, TRUE, 0);
 	
 	gtk_widget_set_size_request(frame, 600, 200 + 30);
 	gtk_widget_set_hexpand(da, TRUE);
