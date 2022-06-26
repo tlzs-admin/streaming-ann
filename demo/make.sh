@@ -66,7 +66,12 @@ case ${target} in
 		    `pkg-config --libs --cflags libsoup-2.4 gio-2.0 glib-2.0`
 		;;
 	video-player|video_source2)
+		if uname -r | grep tegra >/dev/null ; then
+			echo "build on jetson tx ..."
+		    CFLAGS+=" -DJETSON_TX2 "
+		fi
 		gcc -std=gnu99 -g -Wall -I../include  -D_DEBUG -D_GNU_SOURCE \
+		    ${CFLAGS} \
 		    -o video-player video-player.c da_panel.c video_source2.c \
 		    ../lib/libann-utils.a  \
 		    -lm -lpthread -ljson-c -ljpeg -lpng -lcairo -ldl \

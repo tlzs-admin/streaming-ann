@@ -401,10 +401,18 @@ static int video_source2_set_uri2(struct video_source2 * video, const char * uri
 	
 	static const char * default_decoder = " decodebin ! videoconvert ";
 	static const char * hls_decoder = " hlsdemux ! decodebin ! videoconvert ";
+
+#ifndef JETSON_TX2
 	static const char * mp4_decoder = " qtdemux name=demux "
 				" demux.audio_0 ! queue silent=true ! decodebin ! audioconvert ! audioresample "
 				" ! volume name=\"audio_volume\" volume=0.5 ! autoaudiosink "
 				" demux.video_0 ! queue silent=true ! decodebin ! videoconvert ";
+#else
+	static const char * mp4_decoder = " qtdemux name=demux "
+				//~ " demux.audio_0 ! queue silent=true ! decodebin ! audioconvert ! audioresample "
+				//~ " ! volume name=\"audio_volume\" volume=0.5 ! autoaudiosink "
+				" demux.video_0 ! queue silent=true ! h264parse ! omxh264dec ! videoconvert ";
+#endif
 	static const char * mkv_decoder = " matroskademux name=demux "
 				" demux.audio_0 ! queue silent=true ! decodebin ! audioconvert ! audioresample "
 				" ! volume name=\"audio_volume\" volume=0.5 ! autoaudiosink "
