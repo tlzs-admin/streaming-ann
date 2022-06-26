@@ -316,13 +316,9 @@ static void on_slider_value_changed(GtkRange * slider, struct shell_context * sh
 	struct video_source2 * video = params->input;
 	
 	double value = gtk_range_get_value(slider);
-	gst_element_seek_simple(video->pipeline, GST_FORMAT_TIME, 
-		GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_KEY_UNIT,
-		(gint64)(value * GST_SECOND));
+	video->seek(video, value);
 	
-	if(shell->paused) {
-		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(shell->play_pause_button), TRUE);
-	}
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(shell->play_pause_button), FALSE);
 	
 	return;
 }

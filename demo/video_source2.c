@@ -451,7 +451,7 @@ static int video_source2_set_uri2(struct video_source2 * video, const char * uri
 static int video_source2_play(struct video_source2 * video);
 static int video_source2_pause(struct video_source2 * video);
 static int video_source2_stop(struct video_source2 * video);
-static int video_source2_seek(struct video_source2 * video, int64_t position);
+static int video_source2_seek(struct video_source2 * video, double position);
 static int video_source2_set_volume(struct video_source2 * video, double volume);
 struct video_source2 * video_source2_init(struct video_source2 * video, void * user_data)
 {
@@ -518,12 +518,17 @@ static int video_source2_stop(struct video_source2 * video)
 	video->is_running = 0;
 	return 0;
 }
-static int video_source2_seek(struct video_source2 * video, int64_t position)
+static int video_source2_seek(struct video_source2 * video, double position /* seconds */)
 {
+	gst_element_seek_simple(video->pipeline, GST_FORMAT_TIME, 
+		GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_KEY_UNIT,
+		(gint64)(position * GST_SECOND));
 	return 0;
 }
 static int video_source2_set_volume(struct video_source2 * video, double volume)
 {
+	if(NULL == video->audio_volume) return -1;
+	
 	if(volume == -1) {
 		g_object_set(G_OBJECT(video->audio_volume), "mute", (gboolean)TRUE, NULL);
 		return 0;

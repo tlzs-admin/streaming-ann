@@ -46,7 +46,7 @@ struct video_source2
 	int (* play)(struct video_source2 * video);
 	int (* pause)(struct video_source2 * video);
 	int (* stop)(struct video_source2 * video);
-	int (* seek)(struct video_source2 * video, int64_t position);
+	int (* seek)(struct video_source2 * video, double position  /* seconds */);
 	int (* set_volume)(struct video_source2 * video, double volume);
 	
 	// callbacks
