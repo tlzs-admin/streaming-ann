@@ -262,7 +262,7 @@ static void on_uri_changed(GtkWidget * widget, struct shell_context * shell)
 	struct global_params * params = shell->params;
 
 	const char * uri = gtk_entry_get_text(GTK_ENTRY(uri_entry));
-	if(uri && uri[0] && strcmp(uri, shell->uri) != 0) {
+	if(uri && uri[0]) { // && strcmp(uri, shell->uri) != 0) {
 		strncpy(shell->uri, uri, sizeof(shell->uri));
 		
 		struct video_source2 * video = params->input;
@@ -293,7 +293,7 @@ static void on_play_pause_toggled(GtkWidget * button, struct shell_context * she
 	int is_paused = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(button));
 	shell->paused = is_paused;
 	
-	GtkWidget * icon = gtk_image_new_from_icon_name(is_paused?"media-playback-pause":"media-playback-start", GTK_ICON_SIZE_BUTTON);
+	GtkWidget * icon = gtk_image_new_from_icon_name(is_paused?"media-playback-start":"media-playback-pause", GTK_ICON_SIZE_BUTTON);
 	gtk_button_set_image(GTK_BUTTON(button), icon);
 	if(is_paused) {
 		rc = video->pause(video);

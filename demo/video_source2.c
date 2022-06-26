@@ -63,7 +63,8 @@ enum video_source_subtype
 	video_source_subtype_default,
 	video_source_subtype_hls = 1,
 	video_source_subtype_youtube = 2,
-	video_source_subtype_mp4 = 0x8000,
+	video_source_subtype_mp4 = 0x8100,
+	video_source_subtype_mkv = 0x8200,
 };
 
 static const char * s_video_source_protocols[video_source_types_count] = {
@@ -125,11 +126,13 @@ enum video_source_type video_source2_type_from_uri(const char * uri, int * p_sub
 		gboolean ok = is_video_file(uri, &content_type);
 		if(ok) type = video_source_type_file;
 		
-		if(content_type && g_content_type_equals(content_type, "video/mp4")) {
-			subtype |= video_source_subtype_mp4;
+		if(content_type) {
+			if(g_content_type_equals(content_type, "video/mp4")) subtype |= video_source_subtype_mp4;
+			else if(g_content_type_equals(content_type, "video/x-matroska")) subtype |= video_source_subtype_mkv;
+			
+			g_free(content_type);
 		}
 	}
-	
 	
 	if(type == video_source_type_https) {
 		uri += strlen(s_video_source_protocols[type]);
@@ -213,7 +216,7 @@ static void on_state_changed(GstBus * bus, GstMessage * message, struct video_so
 	gst_message_parse_state_changed(message, &old_state, &new_state, &pending_state);
 	if(GST_MESSAGE_SRC(message) == GST_OBJECT(video->pipeline)) {
 		video->state = new_state;
-		g_print ("State set to %s\n", gst_element_state_get_name (new_state));
+		debug_printf("State set to %s\n", gst_element_state_get_name(new_state));
 		if (old_state == GST_STATE_READY && new_state == GST_STATE_PAUSED) {
 			struct global_params * params = video->user_data;
 			video->stopped = 0;
@@ -393,9 +396,15 @@ static int video_source2_set_uri2(struct video_source2 * video, const char * uri
 				" demux.audio_0 ! queue silent=true ! decodebin ! audioconvert ! audioresample "
 				" ! volume name=\"audio_volume\" volume=0.5 ! autoaudiosink "
 				" demux.video_0 ! queue silent=true ! decodebin ! videoconvert ";
+	static const char * mkv_decoder = " matroskademux name=demux "
+				" demux.audio_0 ! queue silent=true ! decodebin ! audioconvert ! audioresample "
+				" ! volume name=\"audio_volume\" volume=0.5 ! autoaudiosink "
+				" demux.video_0 ! queue silent=true ! decodebin ! videoconvert ";
+	
 
 #define BGRA_PIPELINE " ! videoscale ! video/x-raw,format=BGRA,width=%d,height=%d ! videoconvert ! identity name=filter ! fakesink name=sink sync=true"
 
+	const char * decoder = default_decoder;
 	switch(type) {
 	case video_source_type_v4l2:
 		snprintf(gst_command, sizeof(gst_command), 	
@@ -405,9 +414,16 @@ static int video_source2_set_uri2(struct video_source2 * video, const char * uri
 	case video_source_type_file: 
 		if(strncasecmp(uri, PROTOCOL_file, sizeof(PROTOCOL_file) - 1) == 0) uri += sizeof(PROTOCOL_file) - 1;
 		
+		if((subtype & video_source_subtype_mp4) == video_source_subtype_mp4) {
+			decoder = mp4_decoder;
+		}else if((subtype & video_source_subtype_mkv) == video_source_subtype_mkv) {
+			decoder = mkv_decoder;
+			printf("mkv...\n");
+		}
+		
 		snprintf(gst_command, sizeof(gst_command), 	
 			"filesrc location=\"%s\" ! %s " BGRA_PIPELINE,
-			uri, (subtype & video_source_subtype_mp4)?mp4_decoder:default_decoder,
+			uri, decoder,
 			width, height);
 		break;
 	case video_source_type_https:
