@@ -21,29 +21,32 @@ CXX_LIBS = $(shell pkg-config --libs protobuf) -ljson-c
 CXX_SOURCES := opencv-caffe_wrapper.cpp
 CXX_OBJECTS := $(CXX_SOURCES:%.cpp=%.cxx.o)
 
-PROTO_CXX_SOURCES := $(wildcard opencv/*.pb.cc)
-PROTO_CXX_OBJECTS := $(PROTO_CXX_SOURCES:%.pb.cc=%.pb.o)
 
+OPENCV_CAFFE_PROTO_SOURCES := opencv/opencv-caffe.pb.cc
+OPENCV_CAFFE_PROTO_OBJECTS := opencv/opencv-caffe.pb.o
 
-all: $(TARGETS) 
-	echo "PROTO_CXX_SOURCES: $(PROTO_CXX_SOURCES)"
+all: proto_compile $(TARGETS) 
 
-tests: tests.c $(CXX_OBJECTS) $(PROTO_CXX_OBJECTS)
+tests: tests.c $(CXX_OBJECTS) $(OPENCV_CAFFE_PROTO_OBJECTS)
 	$(LINKER) $(CXX_FLAGS) -o $@ $^  $(CXX_LIBS) -lstdc++
 
 
-$(PROTO_CXX_OBJECTS): %.pb.o : %.pb.cc
+opencv/opencv-caffe.pb.cc: opencv/opencv-caffe.proto
+	echo "compile $^ ..."
+	cd opencv; protoc --cpp_out=. opencv-caffe.proto
+	
+$(OPENCV_CAFFE_PROTO_OBJECTS) :  %.pb.o : %.pb.cc
 	$(CXX) -o $@ -c $< $(CXX_FLAGS)
 
 $(CXX_OBJECTS) : %.cxx.o : %.cpp
 	$(CXX) -o $@ -c $< $(CXX_FLAGS)
 
 
+.PHONY: proto_compile clean
+proto_compile: opencv/opencv-caffe.proto
+	echo "compile $^ ..."
+	cd opencv; protoc --cpp_out=. opencv-caffe.proto
 
-test1: test1.cpp 
-	g++ -std=c++11 -o $@ $^  $(pkg-config --cflags --libs protobuf)
-
-.PHONY: clean
 clean:
 	echo "PROTO_CXX_SOURCES: $(PROTO_CXX_SOURCES)"
 	echo "PROTO_CXX_OBJECTS: $(PROTO_CXX_OBJECTS)"

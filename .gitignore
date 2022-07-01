@@ -42,4 +42,6 @@ backup/
 !demo/html
 !demo/html/js
 
+!tools/converter
+!tools/converter/opencv
 

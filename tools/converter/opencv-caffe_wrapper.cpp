@@ -54,14 +54,10 @@ struct opencv_caffe_net * opencv_caffe_net_init(struct opencv_caffe_net *net, vo
 	net->load_config = opencv_caffe_net_load_config;
 	net->parse_prototxt = opencv_caffe_net_parse_prototxt;
 	
-	
-	google::protobuf::TextFormat::Parser parser;
 	net->net_params = new opencv_caffe::NetParameter();
 	assert(net->net_params);
 	
 	return net;
-	
-	
 }
 void opencv_caffe_net_cleanup(struct opencv_caffe_net * net)
 {
