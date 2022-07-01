@@ -1,4 +1,4 @@
-TARGETS=tests
+TARGETS=test1
 
 DEBUG ?= 1
 CC = gcc -std=gnu99
@@ -18,38 +18,33 @@ CXX_FLAGS += $(shell pkg-config --cflags protobuf)
 CXX_LIBS = $(shell pkg-config --libs protobuf) -ljson-c 
 
 
-CXX_SOURCES := opencv-caffe_wrapper.cpp
-CXX_OBJECTS := $(CXX_SOURCES:%.cpp=%.cxx.o)
+OBJECTS := protobuf_model.o
+PROTO_OBJECTS := opencv/opencv-caffe.pb.o onnx/onnx.pb.o
 
 
-OPENCV_CAFFE_PROTO_SOURCES := opencv/opencv-caffe.pb.cc
-OPENCV_CAFFE_PROTO_OBJECTS := opencv/opencv-caffe.pb.o
 
-all: proto_compile $(TARGETS) 
+all: $(PROTO_OBJECTS) $(TARGETS)
 
-tests: tests.c $(CXX_OBJECTS) $(OPENCV_CAFFE_PROTO_OBJECTS)
-	$(LINKER) $(CXX_FLAGS) -o $@ $^  $(CXX_LIBS) -lstdc++
+test1: test1.c $(OBJECTS) $(PROTO_OBJECTS)
+	$(CXX) -O0 -o $@ $^ $(CFLAGS) $(CXX_FLAGS) $(CXX_LIBS) 
 
+$(PROTO_OBJECTS): %.pb.o : %.pb.cc
+	$(CXX) -o $@ -c $< $(CXX_FLAGS)
+	
+$(OBJECTS): %.o : %.cpp
+	$(CXX) -o $@ -c $< $(CXX_FLAGS)
 
+## compile proto
 opencv/opencv-caffe.pb.cc: opencv/opencv-caffe.proto
 	echo "compile $^ ..."
 	cd opencv; protoc --cpp_out=. opencv-caffe.proto
 	
-$(OPENCV_CAFFE_PROTO_OBJECTS) :  %.pb.o : %.pb.cc
-	$(CXX) -o $@ -c $< $(CXX_FLAGS)
-
-$(CXX_OBJECTS) : %.cxx.o : %.cpp
-	$(CXX) -o $@ -c $< $(CXX_FLAGS)
-
-
-.PHONY: proto_compile clean
-proto_compile: opencv/opencv-caffe.proto
+onnx/onnx.pb.cc: onnx/onnx.proto
 	echo "compile $^ ..."
-	cd opencv; protoc --cpp_out=. opencv-caffe.proto
+	cd onnx; protoc --cpp_out=. onnx.proto
 
+.PHONY: clean
 clean:
-	echo "PROTO_CXX_SOURCES: $(PROTO_CXX_SOURCES)"
-	echo "PROTO_CXX_OBJECTS: $(PROTO_CXX_OBJECTS)"
 	rm -f *.o opencv/*.o
 
 
