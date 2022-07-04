@@ -355,6 +355,10 @@ static void on_file_selection_changed(GtkFileChooser * file_chooser, shell_conte
 	
 	unsigned char * image_data = NULL;
 	ssize_t cb_data = load_binary_data(filename, &image_data);
+	if(NULL == image_data) {
+		gtk_header_bar_set_subtitle(GTK_HEADER_BAR(shell->header_bar), "invalid image file");
+		return;
+	}
 	
 	gboolean uncertain = TRUE;
 	char * content_type = g_content_type_guess(filename, image_data, cb_data, &uncertain);
@@ -363,6 +367,8 @@ static void on_file_selection_changed(GtkFileChooser * file_chooser, shell_conte
 	{
 		gtk_header_bar_set_subtitle(GTK_HEADER_BAR(shell->header_bar), "invalid image file");
 		if(content_type) g_free(content_type); 
+		
+		free(image_data);
 		return;
 	}
 	

@@ -149,7 +149,7 @@ enum video_source_type video_source2_type_from_uri(const char * uri, int * p_sub
 			subtype |= video_source_subtype_youtube;
 		}else {
 			char * p_ext = strrchr(uri, '.');
-			if(p_ext && strcasecmp(p_ext, ".m38u") == 0) subtype |= video_source_subtype_hls;
+			if(p_ext && strcasecmp(p_ext, ".m3u8") == 0) subtype |= video_source_subtype_hls;
 		}
 	}
 	
@@ -162,7 +162,7 @@ enum video_source_type video_source2_type_from_uri(const char * uri, int * p_sub
 static int get_youtube_embed_uri(const char * youtube_url, char embed_uri[static 4096], size_t size)
 {
 	static const char * fmt = "youtube-dl " 
-		" --format 'best[ext=mp4][protocol=https][height<=480]' "
+	//	" --format 'best[ext=mp4][protocol=https][height<=480]' "
 		" --get-url '%s' ";
 		
 	char command[8192] = "";
@@ -173,7 +173,12 @@ static int get_youtube_embed_uri(const char * youtube_url, char embed_uri[static
 	char * uri = fgets(embed_uri, size, fp);
 	int rc = pclose(fp);
 	
-	debug_printf("rc=%d, embed_uri: %s\n", rc, uri);
+	if(uri) {
+		int cb = strlen(uri);
+		while(cb > 0 && uri[cb - 1] == '\n') uri[--cb] = '\0';
+	}
+	
+	debug_printf("rc=%d, embed_uri: %s\n", rc, uri?uri:"");
 	
 	return uri?rc:-1;
 }
@@ -227,12 +232,12 @@ static void on_state_changed(GstBus * bus, GstMessage * message, struct video_so
 		video->state = new_state;
 		debug_printf("State set to %s\n", gst_element_state_get_name(new_state));
 		if (old_state == GST_STATE_READY && new_state == GST_STATE_PAUSED) {
-			struct global_params * params = video->user_data;
+			//~ struct global_params * params = video->user_data;
 			video->stopped = 0;
 			video->is_running = 1;
 			
-			gboolean shell_update_ui(struct global_params * params);
-			shell_update_ui(params);
+			//~ gboolean shell_update_ui(struct global_params * params);
+			//~ shell_update_ui(params);
 		}else if(new_state == GST_STATE_READY || new_state == GST_STATE_NULL) {
 			video->stopped = 1;
 		}
@@ -391,6 +396,8 @@ static int video_source2_set_uri2(struct video_source2 * video, const char * uri
 	if(width <= 0) width = 1280;
 	if(height <= 0) height = 720;
 	
+	debug_printf("uri: %s", uri);
+	
 	type = video_source2_type_from_uri(uri, &subtype);
 	if(type == video_source_type_unknown || type >= video_source_types_count) {
 		fprintf(stderr, "[ERROR]::invalid uri: %s\n", uri);
@@ -430,6 +437,7 @@ static int video_source2_set_uri2(struct video_source2 * video, const char * uri
 #define BGRA_PIPELINE " ! videoscale ! video/x-raw,format=BGRA,width=%d,height=%d ! videoconvert ! identity name=filter ! fakesink name=sink sync=true"
 
 	const char * decoder = default_decoder;
+	char embed_uri[4096] = "";
 	switch(type) {
 	case video_source_type_v4l2:
 		snprintf(gst_command, sizeof(gst_command), 	
@@ -455,6 +463,7 @@ static int video_source2_set_uri2(struct video_source2 * video, const char * uri
 			width, height);
 		break;
 	case video_source_type_https:
+		subtype &= ~video_source_subtype_file_mask;
 		if(subtype & video_source_subtype_hls) {
 			snprintf(gst_command, sizeof(gst_command), 	
 				"souphttpsrc location=\"%s\" ! %s " BGRA_PIPELINE,
@@ -462,10 +471,12 @@ static int video_source2_set_uri2(struct video_source2 * video, const char * uri
 				width, height);
 			break;
 		}else if(subtype & video_source_subtype_youtube) {
-			char embed_uri[4096] = "";
+			
 			int rc = get_youtube_embed_uri(uri, embed_uri, sizeof(embed_uri));
 			if(rc) return -1;
 			
+			return video->set_uri2(video, embed_uri, width, height);
+		}else {
 			snprintf(gst_command, sizeof(gst_command), 	
 				"souphttpsrc is-live=true location=\"%s\" ! %s " BGRA_PIPELINE,
 				embed_uri, mp4_decoder,

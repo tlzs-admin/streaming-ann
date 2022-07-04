@@ -171,25 +171,42 @@ static gboolean on_da_draw(GtkWidget * da, cairo_t * cr, struct da_panel * panel
 		return FALSE;
 	}
 	
+	panel->width = gtk_widget_get_allocated_width(da);
+	panel->height = gtk_widget_get_allocated_height(da);
+	
 	double sx = (double)panel->width / (double)panel->image_width;
 	double sy = (double)panel->height / (double)panel->image_height;
+	
+	printf("panel(%dx%d), image: %d x %d\n  sx: %f, sy: %f, x_offset: %f\n", 
+		panel->width, panel->height,
+		panel->image_width, panel->image_height,
+		sx, sy, panel->x_offset);
 	
 	if(panel->keep_ratio) {
 		cairo_set_source_rgba(cr, 0, 0, 0, 1);
 		cairo_paint(cr);
 		
-		if(sx < sy) sy = sx;
+		if(sx < sy) {
+			sy = sx;
+			double scaled_height = (double)panel->height / sy;
+			panel->x_offset = 0;
+			panel->y_offset = (scaled_height - (double)panel->image_height) / 2;
+			
+		}
 		else {
 			sx = sy;
 			double scaled_width = (double)panel->width / sx;
 			panel->x_offset = (scaled_width - (double)panel->image_width) / 2;
+			panel->y_offset = 0;
+			
 		//	printf("image_width: %f, scaled_width: %f\n", (double)panel->image_width, scaled_width);
 		}
 	}
+	
+	printf("sx: %f, sy: %f, x_offset: %f\n", sx, sy, panel->x_offset);
 	cairo_scale(cr, sx, sy);
 	cairo_set_source_surface(cr, panel->surface, panel->x_offset, panel->y_offset);
 	cairo_paint(cr);
-	
 	return FALSE;
 }
 	

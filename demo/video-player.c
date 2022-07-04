@@ -52,6 +52,7 @@
 
 #include <stdint.h>
 #include "video_source2.h"
+#include "classes_counter.h"
 
 #define AI_PLUGIN_HTTPCLIENT 	"ai-engine::httpclient"
 
@@ -114,6 +115,12 @@ struct shell_context
 	double fps;
 	json_object * jcolors;
 	GdkRGBA default_fg;
+	
+	// classes counter
+	gboolean counters_list_hide_flags;
+	GtkTreeView * counters_list;
+	GtkWidget * counters_list_container;
+	struct classes_counter_context counter_ctx[1];
 };
 struct shell_context * shell_context_init(struct shell_context * shell, void * user_data);
 void shell_context_cleanup(struct shell_context * shell);
@@ -138,6 +145,7 @@ static int on_end_of_stream(struct video_source2 * video, void * user_data)
 	return 0;
 }
 
+static int on_video_status_changed(struct video_source2 * video, GstState old_state, GstState new_state, void * user_data);
 static int global_params_parse_args(struct global_params * params, int argc, char ** argv)
 {
 	static struct option options[] = {
@@ -219,6 +227,7 @@ static int global_params_parse_args(struct global_params * params, int argc, cha
 	input->on_eos = on_end_of_stream;
 	input->on_error = on_end_of_stream;
 	input->set_uri2(input, video_src, width, height);
+	input->on_state_changed = on_video_status_changed;
 	
 	if(jai_engine || params->server_url) {
 		if(NULL == jai_engine) {
@@ -269,6 +278,22 @@ int main(int argc, char **argv)
 /**********************************************
  * shell context
 **********************************************/
+
+enum LISTVIEW_COLUMN
+{
+	LISTVIEW_COLUMN_index,
+	LISTVIEW_COLUMN_class_name,
+	LISTVIEW_COLUMN_counter,
+	LISTVIEW_COLUMNS_count
+};
+static inline void reset_counters_list(GtkTreeView * listview)
+{
+	GtkListStore * store = gtk_list_store_new(LISTVIEW_COLUMNS_count, G_TYPE_INT, G_TYPE_STRING, G_TYPE_INT);
+	gtk_tree_view_set_model(listview, GTK_TREE_MODEL(store));
+	g_object_unref(store);
+}
+
+
 static int shell_reload_config(struct shell_context * shell, json_object * jconfig);
 static int shell_init(struct shell_context * shell);
 static int shell_run(struct shell_context * shell);
@@ -307,7 +332,6 @@ static int shell_reload_config(struct shell_context * shell, json_object * jconf
 	return 0;
 }
 
-
 static void on_uri_changed(GtkWidget * widget, struct shell_context * shell)
 {
 	assert(shell && shell->uri_entry);
@@ -323,6 +347,12 @@ static void on_uri_changed(GtkWidget * widget, struct shell_context * shell)
 		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(shell->play_pause_button), TRUE);
 		shell->is_running = 0;
 		video->stop(video);
+		
+		// clear counters
+		struct classes_counter_context * counters = shell->counter_ctx;
+		if(counters && counters->clear_all) counters->clear_all(counters);
+		reset_counters_list(shell->counters_list);
+		
 		int rc = video->set_uri2(video, uri, params->width, params->height);
 		rc = video->play(video);
 		if(0 == rc) {
@@ -458,6 +488,129 @@ static gboolean on_enable_ai_engine(GtkSwitch * switch_button, gboolean state, s
 	shell->ai_enabled = state;
 	return FALSE;
 }
+static void on_show_hide_counters_list(GtkCheckMenuItem * check_menu, struct shell_context * shell)
+{
+	shell->counters_list_hide_flags = gtk_check_menu_item_get_active(check_menu);
+	if(shell->counters_list_hide_flags) gtk_widget_hide(GTK_WIDGET(shell->counters_list_container));
+	else gtk_widget_show(GTK_WIDGET(shell->counters_list_container));
+	return;
+}
+
+static void init_counters_list(GtkTreeView * listview)
+{
+	GtkTreeViewColumn * col;
+	GtkCellRenderer * cr;
+	
+	cr = gtk_cell_renderer_text_new();
+	col = gtk_tree_view_column_new_with_attributes(_("Class"), cr, "text", LISTVIEW_COLUMN_class_name, NULL);
+	gtk_tree_view_append_column(listview, col);
+	gtk_tree_view_column_set_resizable(col, TRUE);
+	gtk_tree_view_column_set_fixed_width(col, 120);
+	
+	cr = gtk_cell_renderer_text_new();
+	col = gtk_tree_view_column_new_with_attributes(_("Count"), cr, "text", LISTVIEW_COLUMN_counter, NULL);
+	gtk_tree_view_append_column(listview, col);
+	gtk_tree_view_column_set_resizable(col, TRUE);
+	
+	gtk_tree_view_set_grid_lines(listview, GTK_TREE_VIEW_GRID_LINES_BOTH);
+	reset_counters_list(listview);
+
+	return;
+}
+
+static void add_files_filter(GtkWidget * file_chooser)
+{
+	GtkFileFilter * filter = gtk_file_filter_new();
+	gtk_file_filter_set_name(filter, "video files");
+	gtk_file_filter_add_mime_type(filter, "video/mp4");
+	gtk_file_filter_add_mime_type(filter, "video/quicktime");
+	gtk_file_filter_add_mime_type(filter, "video/mpeg");
+	gtk_file_filter_add_mime_type(filter, "video/webm");
+	gtk_file_filter_add_mime_type(filter, "video/x-matroska");
+	gtk_file_filter_add_mime_type(filter, "video/x-msvideo");
+	gtk_file_filter_add_mime_type(filter, "video/x-ms-wmv");
+	gtk_file_filter_add_mime_type(filter, "application/vnd.rn-realmedia");
+	gtk_file_chooser_set_filter(GTK_FILE_CHOOSER(file_chooser), filter);
+}
+
+static void on_menu_open_clicked(GtkMenuItem * item, struct shell_context * shell)
+{
+	GtkWidget * dlg = gtk_file_chooser_dialog_new("Open video files...", GTK_WINDOW(shell->window), GTK_FILE_CHOOSER_ACTION_OPEN, 
+		"Open", GTK_RESPONSE_APPLY,
+		"Cancel", GTK_RESPONSE_CANCEL, 
+		NULL);
+	add_files_filter(dlg);
+	gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dlg), getenv("PWD"));
+	gtk_dialog_set_default_response(GTK_DIALOG(dlg), GTK_RESPONSE_APPLY);
+	
+	gint response = gtk_dialog_run(GTK_DIALOG(dlg));
+	switch(response)
+	{
+	case GTK_RESPONSE_APPLY:
+		on_file_selection_changed(GTK_FILE_CHOOSER(dlg), shell);
+		break;
+	case GTK_RESPONSE_CANCEL:
+	default:
+		break;
+	}
+	gtk_widget_destroy(dlg);
+}
+
+GtkWidget * create_options_menu(struct shell_context * shell)
+{
+	GtkWidget * menu = gtk_menu_new();
+	
+	GtkWidget * open = gtk_menu_item_new_with_label(_("Open video files ..."));
+	g_signal_connect(open, "activate", G_CALLBACK(on_menu_open_clicked), shell);
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), open);
+	
+	GtkWidget * separator = gtk_separator_menu_item_new();
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), separator);
+	
+	GtkWidget * options = gtk_menu_item_new_with_label("options");
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), options);
+	
+	GtkWidget * sub_menu = gtk_menu_new();
+	gtk_menu_item_set_submenu(GTK_MENU_ITEM(options), sub_menu);
+	GtkWidget * show_counters = gtk_check_menu_item_new_with_label(_("Hide Counters List"));
+	gtk_menu_shell_append(GTK_MENU_SHELL(sub_menu), show_counters);
+	g_signal_connect(show_counters, "toggled", G_CALLBACK(on_show_hide_counters_list), shell);
+	
+	//~ GtkWidget * enable_ai = gtk_check_menu_item_new_with_label(_("Enable AI engine"));
+	//~ gtk_menu_shell_append(GTK_MENU_SHELL(sub_menu), enable_ai);
+
+	separator = gtk_separator_menu_item_new();
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), separator);
+	
+	GtkWidget * quit =  gtk_menu_item_new_with_label(_("Quit ..."));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), quit);
+	g_signal_connect_swapped(quit, "activate", G_CALLBACK(shell_stop), shell);
+	
+	
+	gtk_widget_show_all(menu);
+	return menu;
+}
+
+static void load_css(struct global_params * params, GtkWidget * window)
+{
+	printf("load css file: %s\n", params->css_file);
+	if(params->css_file) {
+		GError * gerr = NULL;
+		GtkCssProvider * css = gtk_css_provider_new();
+		gboolean ok = gtk_css_provider_load_from_path(css, params->css_file, &gerr);
+		if(!ok || gerr) {
+			fprintf(stderr, "gtk_css_provider_load_from_path(%s) failed: %s\n",
+				params->css_file, 
+				gerr?gerr->message:"unknown error");
+			if(gerr) g_error_free(gerr);
+		}else
+		{
+			GdkScreen* screen = gtk_window_get_screen(GTK_WINDOW(window));
+			gtk_style_context_add_provider_for_screen(screen, GTK_STYLE_PROVIDER(css), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+		}
+	}
+}
+
 static void init_windows(struct shell_context * shell)
 {
 	struct global_params * params = shell->params;
@@ -472,22 +625,14 @@ static void init_windows(struct shell_context * shell)
 	gtk_window_set_titlebar(GTK_WINDOW(window), header_bar);
 	gtk_container_add(GTK_CONTAINER(window), grid);
 	
-	if(params->css_file) {
-		GError * gerr = NULL;
-		GtkCssProvider * css = gtk_css_provider_new();
-		gboolean ok = gtk_css_provider_load_from_path(css, params->css_file, &gerr);
-		if(!ok || gerr) {
-			fprintf(stderr, "gtk_css_provider_load_from_path(%s) failed: %s\n",
-				params->css_file, 
-				gerr?gerr->message:"unknown error");
-			if(gerr) g_error_free(gerr);
-		}else
-		{
-			GdkScreen* screen = gtk_window_get_screen(GTK_WINDOW(window));
-			gtk_style_context_add_provider_for_screen(screen, GTK_STYLE_PROVIDER(css), GTK_STYLE_PROVIDER_PRIORITY_USER);
-		}
-	}
+	GtkWidget * menu_button = gtk_menu_button_new();
+	GtkWidget * menu_icon = gtk_image_new_from_icon_name("applications-system", GTK_ICON_SIZE_MENU);
+	gtk_button_set_image(GTK_BUTTON(menu_button), menu_icon);
 	
+	GtkWidget * menu = create_options_menu(shell);
+	gtk_menu_button_set_popup(GTK_MENU_BUTTON(menu_button), menu);
+	gtk_header_bar_pack_start(GTK_HEADER_BAR(header_bar), menu_button);
+
 	gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(header_bar), TRUE);
 	gtk_header_bar_set_title(GTK_HEADER_BAR(header_bar), "Media Player Demo");
 	
@@ -495,21 +640,11 @@ static void init_windows(struct shell_context * shell)
 	gtk_header_bar_pack_start(GTK_HEADER_BAR(header_bar), ai_switcher);
 	g_signal_connect(ai_switcher, "state-set", G_CALLBACK(on_enable_ai_engine), shell);
 	
-	GtkWidget * file_chooser = gtk_file_chooser_button_new(_("select video file"), GTK_FILE_CHOOSER_ACTION_OPEN);
-	GtkFileFilter * filter = gtk_file_filter_new();
-	gtk_file_filter_set_name(filter, "video files");
-	gtk_file_filter_add_mime_type(filter, "video/mp4");
-	gtk_file_filter_add_mime_type(filter, "video/quicktime");
-	gtk_file_filter_add_mime_type(filter, "video/mpeg");
-	gtk_file_filter_add_mime_type(filter, "video/webm");
-	gtk_file_filter_add_mime_type(filter, "video/x-matroska");
-	gtk_file_filter_add_mime_type(filter, "video/x-msvideo");
-	gtk_file_filter_add_mime_type(filter, "video/x-ms-wmv");
-	gtk_file_filter_add_mime_type(filter, "application/vnd.rn-realmedia");
-	gtk_file_chooser_set_filter(GTK_FILE_CHOOSER(file_chooser), filter);
-	g_signal_connect(file_chooser, "file-set", G_CALLBACK(on_file_selection_changed), shell);
-	gtk_header_bar_pack_start(GTK_HEADER_BAR(header_bar), file_chooser);
+	//~ GtkWidget * file_chooser = gtk_file_chooser_button_new(_("select video file"), GTK_FILE_CHOOSER_ACTION_OPEN);
+	//~ add_files_filter(file_chooser);
 	
+	//~ g_signal_connect(file_chooser, "file-set", G_CALLBACK(on_file_selection_changed), shell);
+	//~ gtk_header_bar_pack_start(GTK_HEADER_BAR(header_bar), file_chooser);
 	
 	int row = 0;
 	GtkWidget * uri_entry = gtk_search_entry_new();
@@ -520,15 +655,39 @@ static void init_windows(struct shell_context * shell)
 	g_signal_connect(uri_entry, "activate", G_CALLBACK(on_uri_changed), shell);
 	
 	GtkWidget * go_button = gtk_button_new_from_icon_name("system-search", GTK_ICON_SIZE_BUTTON);
-	gtk_grid_attach(GTK_GRID(grid), go_button, 1, row++, 1, 1);
+	gtk_grid_attach(GTK_GRID(grid), go_button, 1, row, 1, 1);
 	g_signal_connect(go_button, "clicked", G_CALLBACK(on_uri_changed), shell);
+	++row;
 
-	struct da_panel * panel = da_panel_init(NULL, 640, 480, shell);
+	GtkWidget * hpaned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
+	gtk_widget_set_hexpand(hpaned, TRUE);
+	gtk_widget_set_vexpand(hpaned, TRUE);
+	gtk_grid_attach(GTK_GRID(grid), hpaned, 0, row, 2, 1);
+
+	struct da_panel * panel = da_panel_init(NULL, 640, 360, shell);
 	assert(panel);
 	shell->panels[0] = panel;
-	gtk_grid_attach(GTK_GRID(grid), panel->frame, 0, row++, 2, 1);
-	gtk_widget_set_size_request(panel->da, 640, 480);
 	panel->keep_ratio = 1;
+	gtk_widget_set_hexpand(panel->frame, TRUE);
+	gtk_widget_set_vexpand(panel->frame, TRUE);
+	
+	gtk_paned_pack1(GTK_PANED(hpaned), panel->frame, TRUE, FALSE);
+	
+	GtkWidget * counters_list = gtk_tree_view_new();
+	GtkWidget * scrolled_win = gtk_scrolled_window_new(NULL, NULL);
+	gtk_scrolled_window_set_shadow_type(GTK_SCROLLED_WINDOW(scrolled_win), GTK_SHADOW_ETCHED_IN);
+	gtk_container_add(GTK_CONTAINER(scrolled_win), counters_list);
+	
+	
+	shell->counters_list = GTK_TREE_VIEW(counters_list);
+	shell->counters_list_container = scrolled_win;
+	gtk_widget_set_size_request(scrolled_win, 180, -1);
+	gtk_widget_set_vexpand(scrolled_win, TRUE);
+	gtk_paned_pack2(GTK_PANED(hpaned),scrolled_win, TRUE, TRUE);
+	
+	init_counters_list(GTK_TREE_VIEW(counters_list));
+	
+	++row;
 	
 	
 	GtkWidget * hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 1);
@@ -541,7 +700,7 @@ static void init_windows(struct shell_context * shell)
 	shell->slider = slider;
 	
 	GtkWidget * play_pause_button = gtk_toggle_button_new();
-	GtkWidget * pause_icon = gtk_image_new_from_icon_name("media-playback-start", GTK_ICON_SIZE_BUTTON);
+	GtkWidget * pause_icon = gtk_image_new_from_icon_name("media-playback-pause", GTK_ICON_SIZE_BUTTON);
 	gtk_button_set_image(GTK_BUTTON(play_pause_button), pause_icon);
 	g_signal_connect(play_pause_button, "toggled", G_CALLBACK(on_play_pause_toggled), shell);
 	
@@ -563,13 +722,17 @@ static void init_windows(struct shell_context * shell)
 	gtk_box_pack_end(GTK_BOX(hbox), mute, FALSE, TRUE, 1);
 	
 	
-	gtk_grid_attach(GTK_GRID(grid), hbox, 0, row++, 2, 1);
+	gtk_grid_attach(GTK_GRID(grid), hbox, 0, row, 2, 1);
+	++row;
 	
 	g_signal_connect_swapped(window, "destroy", G_CALLBACK(shell_stop), shell);
 	
 	gtk_widget_show_all(window);
 	shell->window = window;
 	shell->header_bar = header_bar;
+	
+	load_css(params, window);
+	return;
 }
 static int shell_init(struct shell_context * shell)
 {
@@ -593,6 +756,9 @@ static int shell_init(struct shell_context * shell)
 	
 	shell->jcolors = jcolors;
 	gdk_rgba_parse(&shell->default_fg, default_fg);
+	
+	classes_counter_context_init(shell->counter_ctx, shell);
+	
 	return 0;
 }
 
@@ -683,15 +849,8 @@ static gboolean on_timeout(struct shell_context * shell)
 
 
 
-
-static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_object * jresult)
+static inline cairo_surface_t * update_panel_surface(da_panel_t * panel, const input_frame_t *frame)
 {
-	assert(panel && panel->shell);
-	
-	struct shell_context * shell = panel->shell;
-	if(frame->width <= 1 || frame->height <= 1) return;
-	assert(frame->width > 1 && frame->height > 1);
-	
 	cairo_surface_t * surface = panel->surface;
 	if(NULL == panel->surface 
 		|| panel->image_width != frame->width || panel->image_height != frame->height)
@@ -717,35 +876,97 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 	memcpy(panel->image_data, frame->data, frame->width * frame->height * 4);
 	cairo_surface_mark_dirty(surface);
 	
-	const bgra_image_t * bgra = frame->bgra;
-	double font_size = (double)bgra->height / 32; 
+	return surface;
+}
+
+struct darknet_detection
+{
+	long class_id;
+	const char * class_name;
+	double confidence;
+	double x;
+	double y;
+	double cx;
+	double cy;
+};
+static ssize_t darknet_detection_parse_json(json_object * jdetections, struct darknet_detection **p_detections)
+{
+	debug_printf("%s()...", __FUNCTION__);
+	assert(jdetections && p_detections);
+	
+	ssize_t count = json_object_array_length(jdetections);
+	if(count <= 0) return count;
+	
+	struct darknet_detection * dets = calloc(count, sizeof(*dets));
+	assert(dets);
+	
+	for(ssize_t i = 0; i < count; ++i) {
+		json_object * jdet = json_object_array_get_idx(jdetections, i);
+		
+		dets[i].class_id = json_get_value_default(jdet, int, class_index, -1);
+		dets[i].class_name = json_get_value(jdet, string, class);
+		dets[i].confidence = json_get_value(jdet, double, confidence);
+		dets[i].x = json_get_value(jdet, double, left);
+		dets[i].y = json_get_value(jdet, double, top);
+		dets[i].cx = json_get_value(jdet, double, width);
+		dets[i].cy = json_get_value(jdet, double, height);
+		
+		assert(dets[i].class_id >= 0 || dets[i].class_name != NULL);
+	}
+	*p_detections = dets;
+	return count;
+}
+
+static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_object * jresult)
+{
+	assert(panel && panel->shell);
+	
+	struct shell_context * shell = panel->shell;
+	if(frame->width <= 1 || frame->height <= 1) return;
+	assert(frame->width > 1 && frame->height > 1);
+	
+	cairo_surface_t * surface = update_panel_surface(panel, frame);
+	assert(surface);
+	
+	const double font_size = (double)frame->height / 32; 
+	const double line_width = (double)frame->height / 240;
+	const char * font_family = "Mono"; 
+	const double width = frame->width;
+	const double height = frame->height;
+	
 	if(jresult)
 	{
 		json_object * jdetections = NULL;
-		cairo_t * cr = cairo_create(surface);
-		
 		json_bool ok = json_object_object_get_ex(jresult, "detections", &jdetections);
-		
-		double width = frame->width;
-		double height = frame->height;
 		if(ok && jdetections)
 		{
-			int count = json_object_array_length(jdetections);
-			cairo_set_line_width(cr, 2);
+			struct classes_counter_context * counters = shell->counter_ctx;
+			struct darknet_detection * dets = NULL;
+			counters->reset(counters);
+			ssize_t num_detections = darknet_detection_parse_json(jdetections, &dets);
 			
-			cairo_select_font_face(cr, "Mono", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+			cairo_t * cr = cairo_create(surface);
+			cairo_set_line_width(cr, line_width);
+			cairo_select_font_face(cr, font_family, CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
 			cairo_set_font_size(cr, font_size);
 			
-			//~ clear_class_counters(shell);
-			for(int i = 0; i < count; ++i)
+			for(ssize_t i = 0; i < num_detections; ++i)
 			{
 				gboolean color_parsed = FALSE;
 				GdkRGBA fg_color;
 				
+				struct class_counter * counter = NULL;
+				const char *class_name = dets[i].class_name;
 				
-				json_object * jdet = json_object_array_get_idx(jdetections, i);
-				assert(jdet);
-				const char * class_name = json_get_value(jdet, string, class);
+				if(dets[i].class_id >= 0) {
+					counter = counters->add_by_id(counters, dets[i].class_id);
+					if(counter && class_name) strncpy(counter->name, class_name, sizeof(counter->name));
+				}else
+				{
+					counter = counters->add_by_name(counters, class_name);
+					if(counter) counter->id = dets[i].class_id;
+				}
+				assert(counter);
 				
 				if(class_name) {
 					json_object * jcolor = NULL;
@@ -753,20 +974,16 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 					ok = json_object_object_get_ex(shell->jcolors, class_name, &jcolor);
 					if(ok && jcolor) color = json_object_get_string(jcolor);
 					if(color) color_parsed = gdk_rgba_parse(&fg_color, color);
-					
-					//~ update_class_counter(shell, class_name);
 				}
 				
 				if(!color_parsed) fg_color = shell->default_fg;
 				
-				double x = json_get_value(jdet, double, left) * width;
-				double y = json_get_value(jdet, double, top) * height;
-				double cx = json_get_value(jdet, double, width);
+				double x = dets[i].x * width;
+				double y = dets[i].y * height;
+				double cx = dets[i].cx * width;
+				double cy = dets[i].cy * height;
 				
-				cx *= width;
-				
-				double cy = json_get_value(jdet, double, height) * height;
-				
+				// draw text background
 				cairo_text_extents_t extents;
 				cairo_text_extents(cr, class_name, &extents);
 				cairo_set_source_rgba(cr, 0.6, 0.6, 0.6, 0.8);
@@ -775,30 +992,32 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 					extents.height + extents.y_advance + 4 - extents.y_bearing);
 				cairo_fill(cr); 
 				
+				// draw bounding box
 				cairo_set_source_rgb(cr, fg_color.red, fg_color.green, fg_color.blue);
 				cairo_rectangle(cr, x, y, cx, cy);
 				cairo_stroke(cr);
 				
+				// draw label
 				cairo_move_to(cr, x, y + font_size);
 				cairo_show_text(cr, class_name);
 				cairo_stroke(cr);
 			}
 			
-			//~ GtkListStore * store = gtk_list_store_new(LISTVIEW_COLUMNS_count, G_TYPE_INT, G_TYPE_STRING, G_TYPE_INT);
-			//~ GtkTreeIter iter;
-			//~ for(ssize_t i = 0; i < shell->num_detected_classes; ++i) {
-				//~ struct class_counter * detected = &shell->detected_classes[i];
-				//~ gtk_list_store_append(store, &iter);
-				//~ gtk_list_store_set(store, &iter, LISTVIEW_COLUMN_index, (gint)i, 
-					//~ LISTVIEW_COLUMN_class_name, detected->name,
-					//~ LISTVIEW_COLUMN_counter, (gint)detected->counter, 
-					//~ -1);
-			//~ }
-			//~ gtk_tree_view_set_model(shell->listview, GTK_TREE_MODEL(store));
-			//~ g_object_unref(store);
+			GtkListStore * store = gtk_list_store_new(LISTVIEW_COLUMNS_count, G_TYPE_INT, G_TYPE_STRING, G_TYPE_INT);
+			GtkTreeIter iter;
+			for(ssize_t i = 0; i < counters->num_classes; ++i) {
+				struct class_counter * class = &counters->classes[i];
+				gtk_list_store_append(store, &iter);
+				gtk_list_store_set(store, &iter, LISTVIEW_COLUMN_index, (gint)class->id, 
+					LISTVIEW_COLUMN_class_name, class->name,
+					LISTVIEW_COLUMN_counter, (gint)class->count, 
+					-1);
+			}
+			gtk_tree_view_set_model(shell->counters_list, GTK_TREE_MODEL(store));
+			g_object_unref(store);
+			
+			cairo_destroy(cr);
 		}
-		
-		cairo_destroy(cr);
 	}
 	
 	
@@ -834,4 +1053,17 @@ gboolean shell_update_ui(struct global_params * params)
 //	printf("duration: %ld, current: %ld\n", video->duration, current);
 	return TRUE;
 }
+static int on_video_status_changed(struct video_source2 * video, GstState old_state, GstState new_state, void * user_data)
+{
+	struct global_params * params = user_data;
+	struct shell_context * shell = params->shell;
+	shell_update_ui(user_data);
+	
 
+	gboolean pause_mode = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(shell->play_pause_button));
+	if(pause_mode && new_state == GST_STATE_PLAYING) {
+		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(shell->play_pause_button), FALSE);
+	}
+
+	return 0;
+}

@@ -56,6 +56,8 @@
 #define IO_PLUGIN_DEFAULT 	 "io-plugin::input-source"
 #define AI_PLUGIN_HTTPCLIENT "ai-engine::httpclient"
 
+#include "classes_counter.h"
+
 struct global_params
 {
 	
@@ -69,14 +71,6 @@ struct stream_context
 	ai_engine_t ** engines;
 	
 	input_frame_t frame[1];
-};
-
-
-#define MAX_CLASSES (80)
-struct class_counter
-{
-	char name[100];
-	long counter;
 };
 
 typedef struct shell_context
@@ -106,10 +100,9 @@ typedef struct shell_context
 	
 	int horz_flip;
 	
+	// classes counter
 	GtkTreeView * listview;
-	
-	ssize_t num_detected_classes;
-	struct class_counter detected_classes[MAX_CLASSES];
+	struct classes_counter_context counter_ctx[1];
 }shell_context_t;
 
 shell_context_t * shell_context_init(int argc, char ** argv, void * user_data);
@@ -220,6 +213,8 @@ shell_context_t * shell_context_init(int argc, char ** argv, void * user_data)
 	assert(0 == rc);
 	
 	shell_load_config(shell, NULL);
+	
+	classes_counter_context_init(shell->counter_ctx, shell);
 	
 	init_windows(shell);
 	return shell;
@@ -405,36 +400,9 @@ static void init_windows(shell_context_t * shell)
 	return;
 }
 
-static void clear_class_counters(struct shell_context * shell)
+
+static inline cairo_surface_t * update_panel_surface(da_panel_t * panel, const input_frame_t *frame)
 {
-	for(ssize_t i = 0; i < shell->num_detected_classes; ++i) {
-		shell->detected_classes[i].counter = 0;
-	}
-}
-
-static void update_class_counter(struct shell_context * shell, const char * class_name)
-{
-	assert(shell && class_name);
-	for(ssize_t i = 0; i < shell->num_detected_classes; ++i)  {
-		if(strncasecmp(class_name, shell->detected_classes[i].name, sizeof(shell->detected_classes[i].name))) continue;
-		++shell->detected_classes[i].counter;
-		return;
-	}
-	
-	assert(shell->num_detected_classes < MAX_CLASSES);
-	
-	struct class_counter * detected = &shell->detected_classes[shell->num_detected_classes++];
-	strncpy(detected->name, class_name, sizeof(detected->name));
-	++detected->counter;
-}
-
-
-
-static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_object * jresult)
-{
-	shell_context_t * shell = panel->shell;
-	assert(shell);
-	assert(frame->width > 1 && frame->height > 1);
 	cairo_surface_t * surface = panel->surface;
 	if(NULL == panel->surface 
 		|| panel->image_width != frame->width || panel->image_height != frame->height)
@@ -446,7 +414,7 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 		assert(data);
 		
 		panel->image_data = data;
-		panel->width = frame->width;
+		panel->image_width = frame->width;
 		panel->image_height = frame->height;
 		
 		surface = cairo_image_surface_create_for_data(data, CAIRO_FORMAT_ARGB32,
@@ -459,6 +427,18 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 	
 	memcpy(panel->image_data, frame->data, frame->width * frame->height * 4);
 	cairo_surface_mark_dirty(surface);
+	
+	return surface;
+}
+
+static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_object * jresult)
+{
+	shell_context_t * shell = panel->shell;
+	assert(shell);
+	assert(frame->width > 1 && frame->height > 1);
+	
+	cairo_surface_t * surface = update_panel_surface(panel, frame);
+	assert(surface);
 	
 	if(jresult)
 	{
@@ -477,7 +457,10 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 			cairo_select_font_face(cr, "Mono", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
 			cairo_set_font_size(cr, 12);
 			
-			clear_class_counters(shell);
+			
+			struct classes_counter_context * counters = shell->counter_ctx;
+			counters->reset(counters);
+			
 			for(int i = 0; i < count; ++i)
 			{
 				gboolean color_parsed = FALSE;
@@ -486,7 +469,21 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 				
 				json_object * jdet = json_object_array_get_idx(jdetections, i);
 				assert(jdet);
+				int class_id = json_get_value_default(jdet, int, class_index, -1);
 				const char * class_name = json_get_value(jdet, string, class);
+				
+				if(class_id < 0 && (!class_name || !class_name[0])) continue;
+				
+				struct class_counter * counter = NULL;
+				if(class_id >= 0) {
+					counter = counters->add_by_id(counters, class_id);
+					if(counter && class_name) strncpy(counter->name, class_name, sizeof(counter->name));
+				}else
+				{
+					counter = counters->add_by_name(counters, class_name);
+					if(counter) counter->id = class_id;
+				}
+				assert(counter);
 				
 				if(class_name) {
 					json_object * jcolor = NULL;
@@ -494,8 +491,6 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 					ok = json_object_object_get_ex(shell->jcolors, class_name, &jcolor);
 					if(ok && jcolor) color = json_object_get_string(jcolor);
 					if(color) color_parsed = gdk_rgba_parse(&fg_color, color);
-					
-					update_class_counter(shell, class_name);
 				}
 				
 				if(!color_parsed) fg_color = shell->default_fg;
@@ -528,12 +523,12 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 			
 			GtkListStore * store = gtk_list_store_new(LISTVIEW_COLUMNS_count, G_TYPE_INT, G_TYPE_STRING, G_TYPE_INT);
 			GtkTreeIter iter;
-			for(ssize_t i = 0; i < shell->num_detected_classes; ++i) {
-				struct class_counter * detected = &shell->detected_classes[i];
+			for(ssize_t i = 0; i < counters->num_classes; ++i) {
+				struct class_counter * class = &counters->classes[i];
 				gtk_list_store_append(store, &iter);
-				gtk_list_store_set(store, &iter, LISTVIEW_COLUMN_index, (gint)i, 
-					LISTVIEW_COLUMN_class_name, detected->name,
-					LISTVIEW_COLUMN_counter, (gint)detected->counter, 
+				gtk_list_store_set(store, &iter, LISTVIEW_COLUMN_index, (gint)class->id,
+					LISTVIEW_COLUMN_class_name, class->name,
+					LISTVIEW_COLUMN_counter, (gint)class->count, 
 					-1);
 			}
 			gtk_tree_view_set_model(shell->listview, GTK_TREE_MODEL(store));

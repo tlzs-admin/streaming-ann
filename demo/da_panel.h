@@ -25,8 +25,10 @@ struct da_panel
 	
 	int keep_ratio;
 	
+	// virtual methods
 	void (* clear)(struct da_panel * panel);
-	
+
+	// callbacks
 	gboolean (* on_draw)(struct da_panel * panel, cairo_t * cr, void * user_data);
 	gboolean (* on_key_press)(struct da_panel * panel, guint keyval, guint state);
 	gboolean (* on_key_release)(struct da_panel * panel, guint keyval, guint state);

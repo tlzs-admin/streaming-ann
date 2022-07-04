@@ -1,3 +1,9 @@
-popup,scale {
-    background-color: "#A9A9A9";
+
+.treeview row:nth-child(even) 
+{ 
+    background-color: #ff0000; 
+}
+.treeview row:nth-child(odd)
+{
+    background-color: #000000;
 }

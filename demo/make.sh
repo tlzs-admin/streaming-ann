@@ -28,13 +28,13 @@ case ${target} in
         ;;
     demo)
 		gcc -std=gnu99 -g -Wall -I../include  -D_DEBUG \
-            -o ${target} ${target}.c da_panel.c \
+            -o ${target} ${target}.c da_panel.c classes_counter.c \
             ../lib/libann-utils.a  \
             -lm -lpthread -ljson-c -ldl \
             -lcairo -ljpeg \
             `pkg-config --cflags --libs gstreamer-1.0 glib-2.0 gio-2.0 gtk+-3.0 libsoup-2.4`
         ;;
-    demo-04|da_panel)
+    demo-04)
 		gcc -std=gnu99 -g -Wall -I../include  -D_DEBUG \
             -o demo-04 demo-04.c da_panel.c \
             ../lib/libann-utils.a  \
@@ -65,18 +65,26 @@ case ${target} in
 		    -lm -lpthread -ljson-c -ljpeg -lpng -lcairo -ldl \
 		    `pkg-config --libs --cflags libsoup-2.4 gio-2.0 glib-2.0`
 		;;
-	video-player|video_source2)
+	video-player|video_source2|classes_counter|da_panel)
 		if uname -r | grep tegra >/dev/null ; then
 			echo "build on jetson tx ..."
 		    CFLAGS+=" -DJETSON_TX2 "
 		fi
 		gcc -std=gnu99 -g -Wall -I../include  -D_DEBUG -D_GNU_SOURCE \
 		    ${CFLAGS} \
-		    -o video-player video-player.c da_panel.c video_source2.c \
+		    -o video-player video-player.c da_panel.c video_source2.c classes_counter.c \
 		    ../lib/libann-utils.a  \
 		    -lm -lpthread -ljson-c -ljpeg -lpng -lcairo -ldl \
 		    `pkg-config --libs --cflags gio-2.0 glib-2.0 gtk+-3.0 gstreamer-1.0`
 		;;
+    test1|blur)
+        gcc -std=gnu99 -g -Wall -I../include  -D_DEBUG -D_GNU_SOURCE \
+             ${CFLAGS} \
+             -o test1 test1.c da_panel.c video_source2.c blur.c \
+             ../lib/libann-utils.a  \
+             -lm -lpthread -ljson-c -ljpeg -lpng -lcairo -ldl \
+             `pkg-config --libs --cflags gio-2.0 glib-2.0 gtk+-3.0 gstreamer-1.0`
+         ;;
 
     *)
 		echo "no building rules"

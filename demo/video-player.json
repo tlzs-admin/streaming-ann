@@ -16,7 +16,7 @@
 		},
 	],
 	"ui": {
-		"fps": 3,
+		"fps": 10,
 		"colors": {
 			"default": "green", // #00ff00
 			"person": "darkblue", // #00008b
