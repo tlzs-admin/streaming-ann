@@ -917,6 +917,12 @@ static ssize_t darknet_detection_parse_json(json_object * jdetections, struct da
 	return count;
 }
 
+#define AUTO_FREE_PTR __attribute__((cleanup(auto_free_ptr)))
+static void auto_free_ptr(void * ptr)
+{
+	void * p = *(void **)ptr;
+	if(p) { free(p); *(void **)ptr = NULL; }
+}
 static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_object * jresult)
 {
 	assert(panel && panel->shell);
@@ -941,7 +947,7 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 		if(ok && jdetections)
 		{
 			struct classes_counter_context * counters = shell->counter_ctx;
-			struct darknet_detection * dets = NULL;
+			AUTO_FREE_PTR struct darknet_detection * dets = NULL;
 			counters->reset(counters);
 			ssize_t num_detections = darknet_detection_parse_json(jdetections, &dets);
 			

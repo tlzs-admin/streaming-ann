@@ -162,7 +162,7 @@ enum video_source_type video_source2_type_from_uri(const char * uri, int * p_sub
 static int get_youtube_embed_uri(const char * youtube_url, char embed_uri[static 4096], size_t size)
 {
 	static const char * fmt = "youtube-dl " 
-	//	" --format 'best[ext=mp4][protocol=https][height<=480]' "
+		" --format 'best[ext=mp4][protocol=https][height<=480]/best' "
 		" --get-url '%s' ";
 		
 	char command[8192] = "";
@@ -479,7 +479,7 @@ static int video_source2_set_uri2(struct video_source2 * video, const char * uri
 		}else {
 			snprintf(gst_command, sizeof(gst_command), 	
 				"souphttpsrc is-live=true location=\"%s\" ! %s " BGRA_PIPELINE,
-				embed_uri, mp4_decoder,
+				uri, mp4_decoder,
 				width, height);
 			break;
 		}

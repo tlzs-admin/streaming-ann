@@ -154,7 +154,7 @@ static void on_da_resize(GtkWidget * da, GdkRectangle * allocation, struct da_pa
 	panel->width = allocation->width;
 	panel->height = allocation->height;
 	if(panel->width > 1 && panel->height > 1) gtk_widget_queue_draw(da);
-	printf("size: %d x %d\n", panel->width, panel->height);
+	// printf("size: %d x %d\n", panel->width, panel->height);
 	return;
 }
 
@@ -177,10 +177,10 @@ static gboolean on_da_draw(GtkWidget * da, cairo_t * cr, struct da_panel * panel
 	double sx = (double)panel->width / (double)panel->image_width;
 	double sy = (double)panel->height / (double)panel->image_height;
 	
-	printf("panel(%dx%d), image: %d x %d\n  sx: %f, sy: %f, x_offset: %f\n", 
-		panel->width, panel->height,
-		panel->image_width, panel->image_height,
-		sx, sy, panel->x_offset);
+	//~ printf("panel(%dx%d), image: %d x %d\n  sx: %f, sy: %f, x_offset: %f\n", 
+		//~ panel->width, panel->height,
+		//~ panel->image_width, panel->image_height,
+		//~ sx, sy, panel->x_offset);
 	
 	if(panel->keep_ratio) {
 		cairo_set_source_rgba(cr, 0, 0, 0, 1);
@@ -203,7 +203,7 @@ static gboolean on_da_draw(GtkWidget * da, cairo_t * cr, struct da_panel * panel
 		}
 	}
 	
-	printf("sx: %f, sy: %f, x_offset: %f\n", sx, sy, panel->x_offset);
+	//printf("sx: %f, sy: %f, x_offset: %f\n", sx, sy, panel->x_offset);
 	cairo_scale(cr, sx, sy);
 	cairo_set_source_surface(cr, panel->surface, panel->x_offset, panel->y_offset);
 	cairo_paint(cr);

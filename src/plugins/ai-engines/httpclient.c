@@ -78,7 +78,6 @@ static size_t on_response(void * ptr, size_t size, size_t n, void * user_data)
 		ctx->jresult = jresult;
 		ctx->jerr = jerr;
 		json_tokener_reset(jtok);
-		ctx->jtok = NULL;
 	}
 	return cb;
 }
