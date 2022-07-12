@@ -45,3 +45,7 @@ backup/
 !tools/converter
 !tools/converter/opencv
 !tools/converter/onnx
+
+!libtensorflow-c
+!libtensorflow-c
+
