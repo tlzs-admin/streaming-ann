@@ -25,11 +25,15 @@ These dependencies are required:
 
 ### build from source
 1. download google's building tools (bazel)
-    
+
     // https://github.com/bazelbuild/bazel/releases/tag/4.2.2
+    
     sudo mkdir /opt/google/bazel
+    
     wget https://github.com/bazelbuild/bazel/releases/download/4.2.2/bazel-4.2.2-linux-x86_64 
+   
     sudo mv bazel-4.2.2-linux-x86_64 /opt/google/bazel/
+    
     sudo ln -s /top/google/bazel/bazel-4.2.2-linux-x86_64 /usr/local/bin/bazel
 
 2. configure, build and install tensorflow library
@@ -42,10 +46,14 @@ These dependencies are required:
         --config=opt --config monolithic \
         --config cuda \
         tensorflow/tools/lib_package:libtensorflow
+        
+    bazel build --jobs 4 --local_ram_resources=HOST_RAM*0.5  \
+        --config=opt --config=cuda --config monolithic \
+        tensorflow:install_headers
     
 #### install
-	INSTALL_PREFIX="/opt/google/tensorflow"
-	
+    INSTALL_PREFIX="/opt/google/tensorflow"
+    
     sudo mkdir -p ${INSTALL_PREFIX}/{lib,include/tensorflow/c}
     sudo cp -p bazel-bin/tensorflow/libtensorflow* ${INSTALL_PREFIX}/lib/
     sudo cp -rp bazel-bin/tensorflow/include/tensorflow/c/* ${INSTALL_PREFIX}/include/tensorflow/c/
@@ -74,4 +82,16 @@ Test
 	export LD_LIBRARY_PATH=${INSTALL_PREFIX}/lib:/usr/local/cuda/lib64
 	./test_tensorflow_context
 	
-	
+
+Inspecting Graphs ( summarize_graph )
+-----------------
+
+### find the names of input and output nodes
+    INSTALL_PREFIX="/opt/google/tensorflow"
+    bazel build --jobs 4 --local_ram_resources=HOST_RAM*0.5  \
+        --config=opt --config=cuda --config monolithic \
+        tensorflow/tools/graph_transforms:summarize_graph
+    
+    /opt/google/tensorflow/tools/graph_transforms/summarize_graph \
+        --in_graph=models/graph.pb \
+        --print_structure=false
