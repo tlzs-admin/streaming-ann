@@ -266,6 +266,89 @@ static void tensorflow_private_free(struct tensorflow_private * priv)
 	priv->num_outputs = 0;
 }
 
+
+#define AUTO_DELETE_STATUS __attribute__((cleanup(auto_delete_status_ptr)))
+static void auto_delete_status_ptr(void * ptr)
+{
+	TF_Status * status = *(TF_Status **)ptr;
+	if(status) {
+		TF_DeleteStatus(status);
+		*(TF_Status **)ptr = NULL;
+	}
+}
+
+static inline int get_shape(TF_Graph * graph, TF_Output output, struct tensor_shape * p_shape)
+{
+	AUTO_DELETE_STATUS TF_Status * status = TF_NewStatus();
+	int num_dims = TF_GraphGetTensorNumDims(graph, output, status);
+	TF_Code code = tf_check_status(status);
+	
+	if(code != TF_OK) return code;
+	
+	if(num_dims <= 0) {
+		fprintf(stderr, "[ERROR]::%s():invalid num_dims(%d).\n", __FUNCTION__, num_dims);
+		return -1;
+	}
+	
+	int64_t * dims = calloc(num_dims, sizeof(*dims));
+	assert(dims);
+	TF_GraphGetTensorShape(graph, output, dims, num_dims, status);
+	code = tf_check_status(status);
+	
+	if(code != TF_OK) {
+		free(dims);
+		return code;
+	}
+	
+	tensor_shape_clear(p_shape);
+	p_shape->num_dims = num_dims;
+	p_shape->dims = dims;
+	return code;
+}
+
+static int get_shape_by_name(struct tensorflow_context * tf, const char * _name, struct tensor_shape * p_shape)
+{
+	struct tensorflow_private * priv = tf->priv;
+	assert(priv && priv->graph && _name);
+	
+	int index = 0;
+	char * oper_name = strdup(_name);
+	char * p_sep = strrchr(oper_name, ':');
+	if(p_sep) {
+		*p_sep++ = '\0';
+		index = atoi(p_sep);
+	}
+	
+	TF_Output output = { NULL };
+	output.oper = TF_GraphOperationByName(priv->graph, oper_name);
+	output.index = index;
+	
+	return get_shape(priv->graph, output, p_shape);
+}
+static int get_input_shape(struct tensorflow_context * tf, int index, struct tensor_shape * p_shape)
+{
+	struct tensorflow_private * priv = tf->priv;
+	assert(priv && priv->graph && priv->num_inputs);
+	if(index < 0 || index >= priv->num_inputs) return -1;
+	
+	TF_Output * inputs = priv->inputs;
+	assert(inputs);
+	
+	return get_shape(priv->graph, inputs[index], p_shape);
+}
+static int get_output_shape(struct tensorflow_context * tf, int index, struct tensor_shape * p_shape)
+{
+	struct tensorflow_private * priv = tf->priv;
+	assert(priv && priv->graph && priv->num_outputs);
+	if(index < 0 || index >= priv->num_outputs) return -1;
+	
+	TF_Output * outputs = priv->outputs;
+	assert(outputs);
+	
+	return get_shape(priv->graph, outputs[index], p_shape);
+}
+
+
 static int set_input_by_names(struct tensorflow_context * tf, int num_inputs, const char ** input_names)
 {
 	assert(num_inputs > 0 && input_names);
@@ -460,6 +543,10 @@ struct tensorflow_context * tensorflow_context_init(struct tensorflow_context * 
 	tf->set_input_by_names = set_input_by_names;
 	tf->set_output_by_names = set_ouput_by_names;
 	tf->session_run = session_run;
+	
+	tf->get_input_shape = get_input_shape;
+	tf->get_output_shape = get_output_shape;
+	tf->get_shape_by_name = get_shape_by_name;
 
 	return tf;
 }
@@ -475,24 +562,75 @@ void tensorflow_context_cleanup(struct tensorflow_context * tf)
 ***************************************************************/
 
 //~ TF_CAPI_EXPORT void TF_InitMain(const char* usage, int* argc, char*** argv);
+
+#include <getopt.h>
+
+struct global_params
+{
+	const char * model_file;
+	const char * input_name;
+	const char * output_name;
+};
+static int parse_args(struct global_params * params, int argc, char ** argv)
+{
+	static struct option options[] = {
+		{"model", required_argument, 0, 'm'},
+		{"input_name", required_argument, 0, 'I'},
+		{"output_name", required_argument, 0, 'O'},
+		{NULL},
+	};
+	
+	while(1) {
+		int option_index = 0;
+		int c = getopt_long(argc, argv, "m:I:O:", options, &option_index);
+		if(c == -1) break;
+		
+		switch(c) {
+		case 'm': params->model_file = optarg; break;
+		case 'I': params->input_name = optarg; break;
+		case 'O': params->output_name = optarg; break;
+		default: 
+			break;
+		}
+	}
+	return 0;
+}
+
+static void tensor_shape_dump(const struct tensor_shape * shape, const char * title)
+{
+	assert(shape);
+	printf("== [%s]: shape(num_dims=%d): [ ", title, shape->num_dims);
+	for(int i = 0; i < shape->num_dims; ++i) {
+		if(i > 0) printf(", ");
+		printf("%ld", (long)shape->dims[i]);
+	}
+	printf(" ]\n");
+}
+
+
+static struct global_params g_params[1] = {{
+	.model_file = "models/graph.pb",
+	.input_name = "input_4",
+	.output_name = "output_node0",
+}};
 int main(int argc, char **argv)
 {
 	//~ TF_InitMain(argv[0], &argc, &argv);
 
 	printf("TF_Version: %s\n", TF_Version());
-
-	const char * model_file = "models/graph.pb";
-	if(argc > 1) model_file = argv[1];
 	
+	struct global_params * params = g_params;
+	parse_args(params, argc, argv);
+
 	struct tensorflow_context tf[1];
 	memset(tf, 0, sizeof(tf));
 	tensorflow_context_init(tf, NULL);
 	
-	int rc = tf->load_model(tf, model_file, NULL);
+	int rc = tf->load_model(tf, params->model_file, NULL);
 	assert(0 == rc);
 	
-	const char * input_names[] = { "input_4" };
-	const char * output_names[] = { "output_node0" };
+	const char * input_names[] = { params->input_name };
+	const char * output_names[] = { params->output_name };
 	
 	rc = tf->set_input_by_names(tf, 1, input_names);
 	assert(0 == rc);
@@ -500,6 +638,16 @@ int main(int argc, char **argv)
 	rc = tf->set_output_by_names(tf, 1, output_names);
 	assert(0 == rc);
 	
+	struct tensor_shape input_shape = { 0 };
+	struct tensor_shape output_shape = { 0 };
+	
+	rc = tf->get_input_shape(tf, 0, &input_shape);
+	assert(0 == rc);
+	tensor_shape_dump(&input_shape, "input");
+	
+	rc = tf->get_output_shape(tf, 0, &output_shape);
+	assert(0 == rc);
+	tensor_shape_dump(&output_shape, "output");
 	
 	static float input_vals[] =  {
 		-0.4809832f, -0.3770838f, 0.1743573f, 0.7720509f, -0.4064746f, 0.0116595f, 0.0051413f, 0.9135732f, 0.7197526f, -0.0400658f, 0.1180671f, -0.6829428f,

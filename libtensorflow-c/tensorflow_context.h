@@ -16,6 +16,16 @@ extern "C" {
 	})
 
 
+struct tensor_shape
+{
+	int num_dims;
+	int64_t * dims;
+};
+#define tensor_shape_clear(shape) do { \
+			if(shape && shape->dims) { free(shape->dims); shape->dims = NULL; shape->num_dims = 0; }  \
+		} while(0)
+
+
 typedef void (* tensor_deallocator_fn)(void * data, size_t len, void * arg);
 struct tensor_data
 {
@@ -62,7 +72,9 @@ struct tensorflow_context
 	int (* set_output_by_names)(struct tensorflow_context *tf, int num_outputs, const char **output_names);
 	int (* session_run)(struct tensorflow_context *tf, const struct tf_tensors * _inputs, struct tf_tensors * _outputs);
 	
-	const struct tf_tensor * (*get_outputs)(struct tensorflow_context *tf);
+	int (* get_input_shape)(struct tensorflow_context * tf, int index, struct tensor_shape * p_shape);
+	int (* get_output_shape)(struct tensorflow_context * tf, int index, struct tensor_shape * p_shape);
+	int (* get_shape_by_name)(struct tensorflow_context * tf, const char * name, struct tensor_shape * p_shape);
 };
 struct tensorflow_context * tensorflow_context_init(struct tensorflow_context * tf, void * user_data);
 void tensorflow_context_cleanup(struct tensorflow_context * tf);
