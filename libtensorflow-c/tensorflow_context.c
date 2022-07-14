@@ -402,6 +402,11 @@ static int set_ouput_by_names(struct tensorflow_context * tf, int num_outputs, c
 	return 0;
 }
 
+static TF_Graph * get_graph(struct tensorflow_context * tf)
+{
+	if(tf && tf->priv) return tf->priv->graph;
+	return NULL;
+}
 
 static int tensorflow_load_model_data(struct tensorflow_context * tf, const void * model_data, size_t cb_model_data)
 {
@@ -474,6 +479,16 @@ static int tensorflow_load_model(struct tensorflow_context * tf, const char * mo
 	return code;
 }
 
+static inline void clear_tensors_array(TF_Tensor ** tensors, int num_tensors)
+{
+	for(int i = 0; i < num_tensors; ++i) {
+		if(tensors[i]) {
+			TF_DeleteTensor(tensors[i]);
+			tensors[i] = NULL;
+		}
+	}
+	return;
+}
 
 static int session_run(struct tensorflow_context * tf, const struct tf_tensors * in_tensors, struct tf_tensors * out_tensors)
 {
@@ -489,9 +504,12 @@ static int session_run(struct tensorflow_context * tf, const struct tf_tensors *
 	TF_Output * outputs = priv->outputs;
 	int num_inputs = priv->num_inputs;
 	int num_outputs = priv->num_outputs;
-	
+
 	assert(inputs && outputs);
 	assert(num_inputs > 0 && num_outputs > 0);
+	
+	clear_tensors_array(priv->input_tensors, priv->num_inputs);
+	clear_tensors_array(priv->output_tensors, priv->num_outputs);
 	
 	TF_Tensor ** input_tensors = priv->input_tensors;
 	for(size_t i = 0; i < in_tensors->num_tensors; ++i) { 
@@ -547,6 +565,8 @@ struct tensorflow_context * tensorflow_context_init(struct tensorflow_context * 
 	tf->get_input_shape = get_input_shape;
 	tf->get_output_shape = get_output_shape;
 	tf->get_shape_by_name = get_shape_by_name;
+	
+	tf->get_graph = get_graph;
 
 	return tf;
 }
@@ -629,6 +649,10 @@ int main(int argc, char **argv)
 	int rc = tf->load_model(tf, params->model_file, NULL);
 	assert(0 == rc);
 	
+	void dump_graph_structure(struct tensorflow_context * tf);
+	dump_graph_structure(tf);
+	
+	
 	const char * input_names[] = { params->input_name };
 	const char * output_names[] = { params->output_name };
 	
@@ -641,6 +665,7 @@ int main(int argc, char **argv)
 	struct tensor_shape input_shape = { 0 };
 	struct tensor_shape output_shape = { 0 };
 	
+	// test tf::get_shape
 	rc = tf->get_input_shape(tf, 0, &input_shape);
 	assert(0 == rc);
 	tensor_shape_dump(&input_shape, "input");
@@ -648,6 +673,11 @@ int main(int argc, char **argv)
 	rc = tf->get_output_shape(tf, 0, &output_shape);
 	assert(0 == rc);
 	tensor_shape_dump(&output_shape, "output");
+	
+	tensor_shape_clear(&input_shape);
+	rc = tf->get_shape_by_name(tf, params->input_name, &input_shape);
+	assert(0 == rc);
+	tensor_shape_dump(&input_shape, params->input_name);
 	
 	static float input_vals[] =  {
 		-0.4809832f, -0.3770838f, 0.1743573f, 0.7720509f, -0.4064746f, 0.0116595f, 0.0051413f, 0.9135732f, 0.7197526f, -0.0400658f, 0.1180671f, -0.6829428f,
@@ -677,7 +707,6 @@ int main(int argc, char **argv)
 		printf("tensor[%d]: num_dims = %d, data_len = %ld\n", 
 			i, tdata->num_dims, (long)tdata->data_len);
 			
-			
 			// output.dims = {1, 4 };
 			assert(tdata->type == TF_FLOAT);
 			const float * out_values = tdata->data;
@@ -686,14 +715,30 @@ int main(int argc, char **argv)
 				printf("%f ", out_values[pos]);
 			}
 			printf("]\n");
-			
-		
 	}
 	
 	tf_tensors_cleanup(&in_tensors);
 	tf_tensors_cleanup(&out_tensors);
 	
+	tensor_shape_clear(&input_shape);
+	tensor_shape_clear(&output_shape);
+	
 	tensorflow_context_cleanup(tf);
 	return 0;
 }
+
+void dump_graph_structure(struct tensorflow_context * tf)
+{
+	TF_Graph * graph = tf->get_graph(tf);
+	assert(graph);
+	
+	size_t pos = 0;
+	TF_Operation * oper = NULL;
+	fprintf(stderr, "==== %s(%p) ====\n", __FUNCTION__, graph); 
+	while((oper = TF_GraphNextOperation(graph, &pos))) {
+		const char *name = TF_OperationName(oper);
+		printf("  Operation[%ld]: name=%s\n", pos, name);
+	}
+}
+
 #endif

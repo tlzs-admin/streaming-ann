@@ -22,7 +22,7 @@ struct tensor_shape
 	int64_t * dims;
 };
 #define tensor_shape_clear(shape) do { \
-			if(shape && shape->dims) { free(shape->dims); shape->dims = NULL; shape->num_dims = 0; }  \
+			if((shape)->dims) { free((shape)->dims); (shape)->dims = NULL; (shape)->num_dims = 0; }  \
 		} while(0)
 
 
@@ -75,9 +75,12 @@ struct tensorflow_context
 	int (* get_input_shape)(struct tensorflow_context * tf, int index, struct tensor_shape * p_shape);
 	int (* get_output_shape)(struct tensorflow_context * tf, int index, struct tensor_shape * p_shape);
 	int (* get_shape_by_name)(struct tensorflow_context * tf, const char * name, struct tensor_shape * p_shape);
+	
+	TF_Graph * (*get_graph)(struct tensorflow_context * tf);
 };
 struct tensorflow_context * tensorflow_context_init(struct tensorflow_context * tf, void * user_data);
 void tensorflow_context_cleanup(struct tensorflow_context * tf);
+
 
 
 #ifdef __cplusplus

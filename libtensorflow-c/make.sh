@@ -1,9 +1,12 @@
 #!/bin/bash
 
-LIBTENSORFLOW_PATH="/opt/google/tensorflow"
-
+LIBTENSORFLOW_PATH=${LIBTENSORFLOW_PATH:-"/opt/google/tensorflow"}
 target=${1-"test"}
 
+echo "tensorflow libpath: '$LIBTENSORFLOW_PATH'"
+echo -n "build target: $target"
+
+ret=0
 case "$target" in 
 	test)
 		gcc -std=gnu99 -g -Wall \
@@ -13,7 +16,12 @@ case "$target" in
 			-L${LIBTENSORFLOW_PATH}/lib -ltensorflow
 		;;
 	*)
-		exit 1
 		;;
 esac
+ret=$?
 
+status="\e[32m[OK]\e[39m"
+[ $ret -ne 0 ] && status="\e[31m[NG]\e[39m"
+
+echo -e " ==> status: $status"
+exit $ret
