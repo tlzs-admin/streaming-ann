@@ -49,3 +49,4 @@ backup/
 !libtensorflow-c
 !libtensorflow-c
 
+!src/cpps
