@@ -226,14 +226,14 @@ static gboolean on_key_release(GtkWidget * da, GdkEventKey * event, struct da_pa
 static gboolean on_button_press(GtkWidget * da, GdkEventButton * event, struct da_panel * panel)
 {
 	if(panel->on_button_press) return panel->on_button_press(panel, event->button, 
-		event->x, event->y, event->state);
+		event->x, event->y, event->state, event);
 	return FALSE;
 }
 
 static gboolean on_button_release(GtkWidget * da, GdkEventButton * event, struct da_panel * panel)
 {
 	if(panel->on_button_release) return panel->on_button_release(panel, event->button, 
-		event->x, event->y, event->state);
+		event->x, event->y, event->state, event);
 	return FALSE;
 }
 

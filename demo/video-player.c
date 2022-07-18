@@ -93,8 +93,10 @@ struct shell_context
 	GtkWidget * window;
 	GtkWidget * header_bar;
 	GtkWidget * uri_entry;
+	GtkWidget * go_button;
 	char uri[PATH_MAX];
 	
+	GtkWidget * slider_container;
 	GtkWidget * play_pause_button;
 	GtkWidget * slider;
 	gulong slider_update_handler;
@@ -117,10 +119,16 @@ struct shell_context
 	GdkRGBA default_fg;
 	
 	// classes counter
-	gboolean counters_list_hide_flags;
+	gboolean counters_list_status;
 	GtkTreeView * counters_list;
 	GtkWidget * counters_list_container;
 	struct classes_counter_context counter_ctx[1];
+	
+	GtkWidget * show_counters_menu;
+	GtkWidget * fullscreen_switch_menu;
+	GtkWidget * show_slider_menu;	// show/hide video control bar
+	gboolean fullscreen_status;
+	GtkWidget * context_menu;
 };
 struct shell_context * shell_context_init(struct shell_context * shell, void * user_data);
 void shell_context_cleanup(struct shell_context * shell);
@@ -490,9 +498,9 @@ static gboolean on_enable_ai_engine(GtkSwitch * switch_button, gboolean state, s
 }
 static void on_show_hide_counters_list(GtkCheckMenuItem * check_menu, struct shell_context * shell)
 {
-	shell->counters_list_hide_flags = gtk_check_menu_item_get_active(check_menu);
-	if(shell->counters_list_hide_flags) gtk_widget_hide(GTK_WIDGET(shell->counters_list_container));
-	else gtk_widget_show(GTK_WIDGET(shell->counters_list_container));
+	shell->counters_list_status = gtk_check_menu_item_get_active(check_menu);
+	if(shell->counters_list_status) gtk_widget_show(GTK_WIDGET(shell->counters_list_container));
+	else gtk_widget_hide(GTK_WIDGET(shell->counters_list_container));
 	return;
 }
 
@@ -556,6 +564,24 @@ static void on_menu_open_clicked(GtkMenuItem * item, struct shell_context * shel
 	gtk_widget_destroy(dlg);
 }
 
+static int fullscreen_mode_switch(struct shell_context * shell);
+static void on_fullscreen_switch_toggled(GtkCheckMenuItem * menu_item, struct shell_context * shell)
+{
+	gboolean status = gtk_check_menu_item_get_active(menu_item);
+	if(status != shell->fullscreen_status) {
+		fullscreen_mode_switch(shell);
+	}
+}
+static void on_show_hide_slider_bar(GtkCheckMenuItem * menu_item, struct shell_context * shell)
+{
+	gboolean is_visible = gtk_check_menu_item_get_active(menu_item);
+	gboolean current_status = gtk_widget_is_visible(shell->slider_container);
+	if(is_visible != current_status) {
+		if(is_visible) gtk_widget_show(shell->slider_container);
+		else gtk_widget_hide(shell->slider_container);
+	}
+}
+
 GtkWidget * create_options_menu(struct shell_context * shell)
 {
 	GtkWidget * menu = gtk_menu_new();
@@ -572,13 +598,30 @@ GtkWidget * create_options_menu(struct shell_context * shell)
 	
 	GtkWidget * sub_menu = gtk_menu_new();
 	gtk_menu_item_set_submenu(GTK_MENU_ITEM(options), sub_menu);
-	GtkWidget * show_counters = gtk_check_menu_item_new_with_label(_("Hide Counters List"));
-	gtk_menu_shell_append(GTK_MENU_SHELL(sub_menu), show_counters);
-	g_signal_connect(show_counters, "toggled", G_CALLBACK(on_show_hide_counters_list), shell);
+	GtkWidget * show_counters_menu = gtk_check_menu_item_new_with_label(_("Show Counters List"));
+	shell->show_counters_menu = show_counters_menu;
+	gtk_menu_shell_append(GTK_MENU_SHELL(sub_menu), show_counters_menu);
+	g_signal_connect(show_counters_menu, "toggled", G_CALLBACK(on_show_hide_counters_list), shell);
+	gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(show_counters_menu), TRUE);
+	
+	GtkWidget * show_slider_menu = gtk_check_menu_item_new_with_label(_("Show Video Control Bar"));
+	shell->show_slider_menu = show_slider_menu;
+	gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(show_slider_menu), TRUE);
+	gtk_menu_shell_append(GTK_MENU_SHELL(sub_menu), show_slider_menu);
+	g_signal_connect(show_slider_menu, "toggled", G_CALLBACK(on_show_hide_slider_bar), shell);
+	
 	
 	//~ GtkWidget * enable_ai = gtk_check_menu_item_new_with_label(_("Enable AI engine"));
 	//~ gtk_menu_shell_append(GTK_MENU_SHELL(sub_menu), enable_ai);
 
+	separator = gtk_separator_menu_item_new();
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), separator);
+	
+	GtkWidget * fullscreen_switch_menu = gtk_check_menu_item_new_with_label(_("Full Screen"));
+	g_signal_connect(fullscreen_switch_menu, "toggled", G_CALLBACK(on_fullscreen_switch_toggled), shell);
+	shell->fullscreen_switch_menu = fullscreen_switch_menu;
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), fullscreen_switch_menu);
+	
 	separator = gtk_separator_menu_item_new();
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), separator);
 	
@@ -611,6 +654,67 @@ static void load_css(struct global_params * params, GtkWidget * window)
 	}
 }
 
+static gboolean on_da_button_press(struct da_panel * panel, guint button, double x, double y, guint state, GdkEventButton * event)
+{
+	debug_printf("button: %u, pos:(%.2f,%.2f), state=%.8x\n", button, x, y, state);
+	if(button == 1) gtk_widget_grab_focus(panel->da);
+	
+	
+	struct shell_context * shell = panel->shell;
+	assert(shell);
+	if(button == 3) { // right button
+		//~ gtk_menu_popup_at_widget(GTK_MENU(shell->context_menu), 
+			//~ panel->da, 
+			//~ GDK_GRAVITY_STATIC,
+			//~ GDK_GRAVITY_NORTH_WEST, 
+			//~ (GdkEvent *)event);
+		gtk_menu_popup_at_pointer(GTK_MENU(shell->context_menu), (GdkEvent *)event);
+	}
+	return FALSE;
+}
+
+static gboolean on_da_key_release(struct da_panel * panel, guint keyval, guint state)
+{
+	
+	debug_printf("key: %u, state=%.8x\n", keyval, state);
+	return FALSE;
+}
+
+static int fullscreen_mode_switch(struct shell_context * shell)
+{
+	shell->fullscreen_status = !shell->fullscreen_status;
+	if(shell->fullscreen_status) {
+		gtk_window_fullscreen(GTK_WINDOW(shell->window));
+		gtk_widget_hide(shell->uri_entry);
+		gtk_widget_hide(shell->go_button);
+	//	gtk_widget_hide(shell->slider_container);
+		
+	}else {
+		gtk_window_unfullscreen(GTK_WINDOW(shell->window));
+		gtk_widget_show(shell->uri_entry);
+		gtk_widget_show(shell->go_button);
+	//	gtk_widget_show(shell->slider_container);
+	}
+	
+	gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(shell->fullscreen_switch_menu), shell->fullscreen_status);
+	
+	return 0;
+}
+
+static gboolean on_window_key_release(GtkWidget * window, GdkEventKey * event, struct shell_context * shell)
+{
+	debug_printf("%s()::key: %u, state=%.8x\n", __FUNCTION__, event->keyval, event->state);
+	switch(event->keyval) {
+	case GDK_KEY_F11:
+		fullscreen_mode_switch(shell);
+		return TRUE;
+	case GDK_KEY_Escape:
+		if(shell->fullscreen_status) fullscreen_mode_switch(shell);
+		return TRUE;
+	}
+	return FALSE;
+}
+
 static void init_windows(struct shell_context * shell)
 {
 	struct global_params * params = shell->params;
@@ -618,6 +722,7 @@ static void init_windows(struct shell_context * shell)
 	
 	GtkWidget * window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
 	gtk_window_set_default_size(GTK_WINDOW(window), 1280, 720);
+	g_signal_connect(window, "key-release-event", G_CALLBACK(on_window_key_release), shell);
 	
 	GtkWidget * header_bar = gtk_header_bar_new();
 	GtkWidget * grid = gtk_grid_new();
@@ -630,6 +735,7 @@ static void init_windows(struct shell_context * shell)
 	gtk_button_set_image(GTK_BUTTON(menu_button), menu_icon);
 	
 	GtkWidget * menu = create_options_menu(shell);
+	shell->context_menu = menu;
 	gtk_menu_button_set_popup(GTK_MENU_BUTTON(menu_button), menu);
 	gtk_header_bar_pack_start(GTK_HEADER_BAR(header_bar), menu_button);
 
@@ -655,10 +761,12 @@ static void init_windows(struct shell_context * shell)
 	g_signal_connect(uri_entry, "activate", G_CALLBACK(on_uri_changed), shell);
 	
 	GtkWidget * go_button = gtk_button_new_from_icon_name("system-search", GTK_ICON_SIZE_BUTTON);
+	shell->go_button = go_button;
+	
 	gtk_grid_attach(GTK_GRID(grid), go_button, 1, row, 1, 1);
 	g_signal_connect(go_button, "clicked", G_CALLBACK(on_uri_changed), shell);
 	++row;
-
+	
 	GtkWidget * hpaned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
 	gtk_widget_set_hexpand(hpaned, TRUE);
 	gtk_widget_set_vexpand(hpaned, TRUE);
@@ -670,6 +778,9 @@ static void init_windows(struct shell_context * shell)
 	panel->keep_ratio = 1;
 	gtk_widget_set_hexpand(panel->frame, TRUE);
 	gtk_widget_set_vexpand(panel->frame, TRUE);
+	gtk_widget_set_can_focus(panel->da, TRUE);
+	panel->on_button_press = on_da_button_press;
+	panel->on_key_release = on_da_key_release;
 	
 	gtk_paned_pack1(GTK_PANED(hpaned), panel->frame, TRUE, FALSE);
 	
@@ -686,11 +797,12 @@ static void init_windows(struct shell_context * shell)
 	gtk_paned_pack2(GTK_PANED(hpaned),scrolled_win, TRUE, TRUE);
 	
 	init_counters_list(GTK_TREE_VIEW(counters_list));
-	
 	++row;
 	
 	
 	GtkWidget * hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 1);
+	shell->slider_container = hbox;
+	
 	GtkWidget * slider = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0, 1.0, 0.001);
 	gtk_widget_set_hexpand(slider, TRUE);
 	gtk_scale_set_draw_value(GTK_SCALE(slider), TRUE);
