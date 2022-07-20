@@ -206,8 +206,9 @@ static ssize_t cv_dnn_face_detect(struct cv_dnn_face *face,
 			assert(num_points == CV_DNN_FACE_LANDMARK_NUM_POINTS);
 			
 			for(ssize_t ii = 0; ii < num_points; ++ii) {
-				marks[i].points[ii].x = points[ii].x;
-				marks[i].points[ii].y = points[ii].y;
+				// convert to relative coordinates
+				marks[i].points[ii].x = points[ii].x / width;
+				marks[i].points[ii].y = points[ii].y / height;
 			}
 		}
 		*p_landmarks = marks;

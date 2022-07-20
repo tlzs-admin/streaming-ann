@@ -97,6 +97,17 @@ case ${target} in
 		    $(pkg-config --cflags --libs opencv4) -lstdc++
 		;;
 	
+	video-player3|video-player3-settings)
+		gcc -std=gnu99 -g -Wall -I../include  -D_DEBUG -D_GNU_SOURCE \
+		    ${CFLAGS} \
+		    -o video-player3 \
+		    video-player3.c da_panel.c video_source2.c classes_counter.c \
+		    video-player3-settings.c \
+		    ../lib/libann-utils.a  \
+		    -lm -lpthread -ljson-c -ljpeg -lpng -lcairo -ldl \
+		    `pkg-config --libs --cflags gio-2.0 glib-2.0 gtk+-3.0 gstreamer-1.0`
+		;;
+	
     test1|blur)
         gcc -std=gnu99 -g -Wall -I../include  -D_DEBUG -D_GNU_SOURCE \
              ${CFLAGS} \
