@@ -77,6 +77,26 @@ case ${target} in
 		    -lm -lpthread -ljson-c -ljpeg -lpng -lcairo -ldl \
 		    `pkg-config --libs --cflags gio-2.0 glib-2.0 gtk+-3.0 gstreamer-1.0`
 		;;
+	video-player2)
+		## compile cv-wrapper
+		pushd $(pwd)
+		cd ../src/cpps
+		make
+		popd
+		
+		## build video-player2
+		gcc -std=gnu99 -g -Wall -I../include  -D_DEBUG -D_GNU_SOURCE \
+		    ${CFLAGS} \
+		    -I../src/cpps \
+		    -o video-player2 video-player2.c da_panel.c video_source2.c classes_counter.c \
+		    ../src/cpps/obj/cvface-wrapper.static.o \
+		    ../src/cpps/obj/cvmat-wrapper.static.o \
+		    ../lib/libann-utils.a  \
+		    -lm -lpthread -ljson-c -ljpeg -lpng -lcairo -ldl \
+		    $(pkg-config --libs --cflags gio-2.0 glib-2.0 gtk+-3.0 gstreamer-1.0) \
+		    $(pkg-config --cflags --libs opencv4) -lstdc++
+		;;
+	
     test1|blur)
         gcc -std=gnu99 -g -Wall -I../include  -D_DEBUG -D_GNU_SOURCE \
              ${CFLAGS} \

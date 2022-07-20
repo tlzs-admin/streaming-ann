@@ -186,6 +186,7 @@ static ssize_t cv_dnn_face_detect(struct cv_dnn_face *face,
 		assert(detections);
 	}
 	*p_detections = detections;
+	if(num_detections <= 0) return num_detections;
 	
 	if(p_landmarks && priv->landmark_enabled) {
 		cv::Ptr<cv::face::FacemarkKazemi> &landmark = priv->landmark;
