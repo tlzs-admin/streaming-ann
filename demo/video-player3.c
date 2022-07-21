@@ -684,13 +684,15 @@ GtkWidget * create_options_menu(struct shell_context * shell)
 	add_seperator(menu);
 	
 	
-	add_menu_item(menu, MENU_ITEM_TYPE_default, 
+	shell->fullscreen_switch_menu = add_menu_item(menu, MENU_ITEM_TYPE_checkbox, 
 		_("Full Screen"), on_fullscreen_mode_toggled,  shell);
 	add_seperator(menu);
 	
-	add_menu_item(menu, MENU_ITEM_TYPE_default, 
-		_("Quit"), G_CALLBACK(shell_stop), shell);
-
+	
+	GtkWidget * quit_menu = gtk_menu_item_new_with_label(_("Quit"));
+	g_signal_connect_swapped(quit_menu, "activate", G_CALLBACK(shell_stop), shell);
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), quit_menu);
+	
 	gtk_widget_show_all(menu);
 	return menu;
 }
@@ -749,6 +751,9 @@ static int fullscreen_mode_switch(struct shell_context * shell)
 		gtk_widget_hide(shell->uri_entry);
 		gtk_widget_hide(shell->go_button);
 	//	gtk_widget_hide(shell->slider_container);
+	
+		struct da_panel * panel = shell->panels[0];
+		gtk_container_set_border_width(GTK_CONTAINER(panel->frame), 0);
 		
 	}else {
 		gtk_window_unfullscreen(GTK_WINDOW(shell->window));
@@ -758,6 +763,8 @@ static int fullscreen_mode_switch(struct shell_context * shell)
 	}
 	
 	gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(shell->fullscreen_switch_menu), shell->fullscreen_status);
+	
+	
 	
 	return 0;
 }
@@ -962,13 +969,16 @@ static int shell_run(struct shell_context * shell)
 }
 static int shell_stop(struct shell_context * shell)
 {
+	debug_printf("%s()...\n", __FUNCTION__);
 	struct global_params * params = shell->params;
 	assert(params && params->input);
 	
-	shell->quit = 1;
-	
-	struct video_source2 * video = params->input;
-	video->stop(video);
+	if(!shell->quit) {
+		shell->quit = 1;
+		
+		struct video_source2 * video = params->input;
+		video->stop(video);
+	}
 	gtk_main_quit();
 	return 0;
 }

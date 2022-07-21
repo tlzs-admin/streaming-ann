@@ -21,35 +21,20 @@ struct area_setting
 	struct point_d vertexes[MAX_AREA_VERTEX];
 };
 
-#define MAX_SETTING_AREAS (16)
+struct settings_private;
 struct area_settings_dialog
 {
-// private data
-	GtkWidget * dlg;
-	void * user_data;
-	GtkWidget * da;
-	cairo_surface_t * surface;
-	cairo_surface_t * area_masks;
-	double da_width;
-	double da_height;
-	double image_width;
-	double image_height;
-
-	int area_index;
-	int points_count;
-	
-	int edit_flags;
-
-// public method
+	struct settings_private *priv;
 	guint (* open)(struct area_settings_dialog * dlg, const input_frame_t * bk_image);
 	
 // public data
+	void * user_data;
+	
+#define MAX_SETTING_AREAS (16)
 	ssize_t num_areas;
 	struct area_setting areas[MAX_SETTING_AREAS];
-	
-	
 };
-struct area_settings_dialog * area_settings_dialog_new(GtkWidget * window, const char * title, void * user_data);
+struct area_settings_dialog * area_settings_dialog_new(GtkWidget * parent_window, const char * title, void * user_data);
 
 
 #ifdef __cplusplus
