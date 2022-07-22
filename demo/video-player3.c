@@ -794,33 +794,33 @@ static gboolean on_window_key_release(GtkWidget * window, GdkEventKey * event, s
 }
 
 
-static gboolean on_custom_panel_draw(struct da_panel * panel, cairo_t * cr, void * user_data)
-{
-	struct shell_context * shell = user_data;
-	if(!shell->show_area_settings_flag) return FALSE;
-	GtkWidget * da = panel->da;
+//~ static gboolean on_custom_panel_draw(struct da_panel * panel, cairo_t * cr, void * user_data)
+//~ {
+	//~ struct shell_context * shell = user_data;
+	//~ if(!shell->show_area_settings_flag) return FALSE;
+	//~ GtkWidget * da = panel->da;
 	
-	struct area_setting * area = &shell->settings_dlg->areas[0];
-	if(area->num_vertexes < 3) return FALSE;
+	//~ struct area_setting * area = &shell->settings_dlg->areas[0];
+	//~ if(area->num_vertexes < 3) return FALSE;
 	
-	double width = gtk_widget_get_allocated_width(da);
-	double height = gtk_widget_get_allocated_height(da);
+	//~ double width = gtk_widget_get_allocated_width(da);
+	//~ double height = gtk_widget_get_allocated_height(da);
 	
-	double x = area->vertexes[0].x * width;
-	double y = area->vertexes[0].y * height;
-	cairo_move_to(cr, x, y);
-	for(int i = 1; i < area->num_vertexes; ++i) {
-		x = area->vertexes[i].x * width;
-		y = area->vertexes[i].y * height;
-		cairo_line_to(cr, x, y);
-	}
-	cairo_close_path(cr);
-	cairo_set_source_rgba(cr, 0, 1, 1, 0.6);
-	cairo_fill_preserve(cr);
-	cairo_set_source_rgba(cr, 0, 0, 1, 1);
-	cairo_stroke(cr);
-	return FALSE;
-}
+	//~ double x = area->vertexes[0].x * width;
+	//~ double y = area->vertexes[0].y * height;
+	//~ cairo_move_to(cr, x, y);
+	//~ for(int i = 1; i < area->num_vertexes; ++i) {
+		//~ x = area->vertexes[i].x * width;
+		//~ y = area->vertexes[i].y * height;
+		//~ cairo_line_to(cr, x, y);
+	//~ }
+	//~ cairo_close_path(cr);
+	//~ cairo_set_source_rgba(cr, 0, 1, 1, 0.6);
+	//~ cairo_fill_preserve(cr);
+	//~ cairo_set_source_rgba(cr, 0, 0, 1, 1);
+	//~ cairo_stroke(cr);
+	//~ return FALSE;
+//~ }
 static void init_windows(struct shell_context * shell)
 {
 	struct global_params * params = shell->params;
@@ -882,7 +882,7 @@ static void init_windows(struct shell_context * shell)
 	assert(panel);
 	shell->panels[0] = panel;
 	panel->keep_ratio = 1;
-	panel->on_draw = on_custom_panel_draw;
+//	panel->on_draw = on_custom_panel_draw;
 	gtk_widget_set_hexpand(panel->frame, TRUE);
 	gtk_widget_set_vexpand(panel->frame, TRUE);
 	gtk_widget_set_can_focus(panel->da, TRUE);
@@ -1146,6 +1146,31 @@ static void auto_free_ptr(void * ptr)
 	void * p = *(void **)ptr;
 	if(p) { free(p); *(void **)ptr = NULL; }
 }
+
+static void draw_area_settings(cairo_surface_t * surface, double width, double height, struct shell_context * shell)
+{
+	if(width < 1 || height < 1) return;
+	struct area_setting * area = &shell->settings_dlg->areas[0];
+	if(area->num_vertexes < 3) return;
+
+	double x = area->vertexes[0].x * width;
+	double y = area->vertexes[0].y * height;
+	
+	cairo_t * cr = cairo_create(surface);
+	cairo_move_to(cr, x, y);
+	for(int i = 1; i < area->num_vertexes; ++i) {
+		x = area->vertexes[i].x * width;
+		y = area->vertexes[i].y * height;
+		cairo_line_to(cr, x, y);
+	}
+	cairo_close_path(cr);
+	cairo_set_source_rgba(cr, 0, 1, 0, 0.6);
+	cairo_fill_preserve(cr);
+	cairo_set_source_rgba(cr, 1, 1, 0, 1);
+	cairo_stroke(cr);
+	cairo_destroy(cr);
+	return;
+}
 static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_object * jresult)
 {
 	assert(panel && panel->shell);
@@ -1162,6 +1187,12 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 	const char * font_family = "Mono"; 
 	const double width = frame->width;
 	const double height = frame->height;
+	
+	
+	if(shell->show_area_settings_flag) {
+		draw_area_settings(surface, width, height, shell);
+	}
+	
 	
 	if(jresult)
 	{
