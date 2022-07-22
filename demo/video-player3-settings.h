@@ -19,14 +19,16 @@ struct area_setting
 {
 	ssize_t num_vertexes;
 	struct point_d vertexes[MAX_AREA_VERTEX];
+	long class_id;
 };
 
 struct settings_private;
 struct area_settings_dialog
 {
 	struct settings_private *priv;
-	guint (* open)(struct area_settings_dialog * dlg, const input_frame_t * bk_image);
-	
+	long (* open)(struct area_settings_dialog * settings, const input_frame_t * bk_image);
+	long (*pt_in_area)(struct area_settings_dialog * settings, double x, double y); // <x,y>::range = [0.0 ~ 1.0]
+
 // public data
 	void * user_data;
 	

@@ -133,6 +133,7 @@ struct shell_context
 	GtkWidget * context_menu;
 	
 	struct area_settings_dialog * settings_dlg;
+	int show_area_settings_flag;
 };
 struct shell_context * shell_context_init(struct shell_context * shell, void * user_data);
 void shell_context_cleanup(struct shell_context * shell);
@@ -175,8 +176,8 @@ static int global_params_parse_args(struct global_params * params, int argc, cha
 	
 	int width = 1280;
 	int height = 720;
-	const char * css_file = "video-player.css";
-	const char * conf_file = "video-player.json";
+	const char * css_file = "video-player3.css";
+	const char * conf_file = "video-player3.json";
 	
 	while(1)
 	{
@@ -599,11 +600,11 @@ static void on_settings_clicked(GtkWidget * menu, struct shell_context * shell)
 	input_frame_t frame[1];
 	memset(frame, 0, sizeof(frame));
 	
-	input->get_frame(input, shell->frame_number, frame);
-	guint response_id = settings_dlg->open(settings_dlg, frame);
+	input->get_frame(input, -1, frame);
+	long response_id = settings_dlg->open(settings_dlg, frame);
 	
 	input_frame_clear(frame);
-	printf("response_id* %u\n", response_id);
+	printf("response_id: %ld\n", (long)response_id);
 
 	return;
 }
@@ -656,6 +657,12 @@ static inline GtkWidget * add_menu_item(GtkWidget * menu,
 	return menu_item;
 }
 
+static void on_show_hide_area_setting(GtkCheckMenuItem * menu_item, struct shell_context * shell)
+{
+	shell->show_area_settings_flag = gtk_check_menu_item_get_active(menu_item);
+	gtk_widget_queue_draw(shell->panels[0]->da);
+}
+
 GtkWidget * create_options_menu(struct shell_context * shell)
 {
 	GtkWidget * menu = gtk_menu_new();
@@ -683,6 +690,9 @@ GtkWidget * create_options_menu(struct shell_context * shell)
 		_("Settings"), on_settings_clicked, shell);
 	add_seperator(menu);
 	
+	add_menu_item(menu, MENU_ITEM_TYPE_checkbox, 
+		_("Show area setting"), on_show_hide_area_setting, shell);
+	add_seperator(menu);
 	
 	shell->fullscreen_switch_menu = add_menu_item(menu, MENU_ITEM_TYPE_checkbox, 
 		_("Full Screen"), on_fullscreen_mode_toggled,  shell);
@@ -783,6 +793,34 @@ static gboolean on_window_key_release(GtkWidget * window, GdkEventKey * event, s
 	return FALSE;
 }
 
+
+static gboolean on_custom_panel_draw(struct da_panel * panel, cairo_t * cr, void * user_data)
+{
+	struct shell_context * shell = user_data;
+	if(!shell->show_area_settings_flag) return FALSE;
+	GtkWidget * da = panel->da;
+	
+	struct area_setting * area = &shell->settings_dlg->areas[0];
+	if(area->num_vertexes < 3) return FALSE;
+	
+	double width = gtk_widget_get_allocated_width(da);
+	double height = gtk_widget_get_allocated_height(da);
+	
+	double x = area->vertexes[0].x * width;
+	double y = area->vertexes[0].y * height;
+	cairo_move_to(cr, x, y);
+	for(int i = 1; i < area->num_vertexes; ++i) {
+		x = area->vertexes[i].x * width;
+		y = area->vertexes[i].y * height;
+		cairo_line_to(cr, x, y);
+	}
+	cairo_close_path(cr);
+	cairo_set_source_rgba(cr, 0, 1, 1, 0.6);
+	cairo_fill_preserve(cr);
+	cairo_set_source_rgba(cr, 0, 0, 1, 1);
+	cairo_stroke(cr);
+	return FALSE;
+}
 static void init_windows(struct shell_context * shell)
 {
 	struct global_params * params = shell->params;
@@ -844,6 +882,7 @@ static void init_windows(struct shell_context * shell)
 	assert(panel);
 	shell->panels[0] = panel;
 	panel->keep_ratio = 1;
+	panel->on_draw = on_custom_panel_draw;
 	gtk_widget_set_hexpand(panel->frame, TRUE);
 	gtk_widget_set_vexpand(panel->frame, TRUE);
 	gtk_widget_set_can_focus(panel->da, TRUE);
@@ -1140,6 +1179,11 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 			cairo_select_font_face(cr, font_family, CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
 			cairo_set_font_size(cr, font_size);
 			
+			int area_settings_flag = 0;
+			struct area_settings_dialog * settings = shell->settings_dlg;
+			area_settings_flag = (settings->num_areas >= 1 && settings->areas[0].num_vertexes >= 3);
+			printf("area_settings_flag: %d\n", area_settings_flag);
+			
 			for(ssize_t i = 0; i < num_detections; ++i)
 			{
 				gboolean color_parsed = FALSE;
@@ -1147,23 +1191,36 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 				
 				struct class_counter * counter = NULL;
 				const char *class_name = dets[i].class_name;
-				
-				if(dets[i].class_id >= 0) {
-					counter = counters->add_by_id(counters, dets[i].class_id);
-					if(counter && class_name) strncpy(counter->name, class_name, sizeof(counter->name));
-				}else
-				{
-					counter = counters->add_by_name(counters, class_name);
-					if(counter) counter->id = dets[i].class_id;
-				}
-				assert(counter);
-				
 				if(class_name) {
 					json_object * jcolor = NULL;
 					const char * color = NULL;
 					ok = json_object_object_get_ex(shell->jcolors, class_name, &jcolor);
-					if(ok && jcolor) color = json_object_get_string(jcolor);
+					
+					if(!ok || !jcolor) continue;	// skip uninteresting classes
+					color = json_object_get_string(jcolor);
 					if(color) color_parsed = gdk_rgba_parse(&fg_color, color);
+				}
+				
+				double center_x = dets[i].x + dets[i].cx / 2;
+				double center_y = dets[i].y + dets[i].cy / 2;
+				
+				int area_index = -1;
+				if(area_settings_flag) {
+					area_index = settings->pt_in_area(settings, center_x, center_y);
+				}
+				printf("area_index: %d\n", area_index);
+				
+				if(!area_settings_flag || area_index >= 0)
+				{
+					if(dets[i].class_id >= 0) {
+						counter = counters->add_by_id(counters, dets[i].class_id);
+						if(counter && class_name) strncpy(counter->name, class_name, sizeof(counter->name));
+					}else
+					{
+						counter = counters->add_by_name(counters, class_name);
+						if(counter) counter->id = dets[i].class_id;
+					}
+					assert(counter);
 				}
 				
 				if(!color_parsed) fg_color = shell->default_fg;

@@ -42,6 +42,9 @@
 #include "video-player3-settings.h"
 #include "utils.h"
 
+static const int s_masks_width = 320;
+static const int s_masks_height = 240;
+static const double s_color_offset = 0.3;
 struct settings_private
 {
 	struct area_settings_dialog * settings;
@@ -67,6 +70,11 @@ struct settings_private
 	struct {
 		double x, y;
 	}temp_pos;
+	
+	GtkWidget * debug_window;
+	GtkWidget * debug_da;
+	double debug_x_pos;
+	double debug_y_pos;
 };
 
 static inline struct area_setting *get_current(struct settings_private * priv)
@@ -146,7 +154,8 @@ static gboolean on_button_release(GtkWidget * da, GdkEventButton * event, struct
 	area->vertexes[area->num_vertexes].x = event->x / width;
 	area->vertexes[area->num_vertexes].y = event->y / height;
 	
-	printf("num_vertexes: %d, pos:(%f, %f)\n", 
+	printf("%s()::num_vertexes: %d, pos:(%f, %f)\n", 
+		__FUNCTION__,
 		(int)area->num_vertexes,
 		(double)event->x, (double)event->y);
 	
@@ -206,7 +215,7 @@ static gboolean on_da_draw(GtkWidget * da, cairo_t * cr, struct area_settings_di
 {
 	struct settings_private * priv = settings->priv;
 	
-	debug_printf("%s(): da_size: %dx%d\n", __FUNCTION__, (int)priv->da_width, (int)priv->da_height);
+	//debug_printf("%s(): da_size: %dx%d\n", __FUNCTION__, (int)priv->da_width, (int)priv->da_height);
 	
 	double width = priv->da_width;
 	double height = priv->da_height;
@@ -257,8 +266,105 @@ static gboolean on_da_draw(GtkWidget * da, cairo_t * cr, struct area_settings_di
 	return FALSE;
 }
 
+static const double s_spacing = 8;
 
-static guint area_settings_dialog_open(struct area_settings_dialog * settings, const input_frame_t * bk_image)
+#define COLOR_TO_INDEX(color) ({ \
+		long index = -1; \
+		index = ((color - s_color_offset)  * 255.0 + 0.5) / s_spacing - 1; \
+		index; \
+	})
+#define INDEX_TO_COLOR(index) ({ \
+		double color = 0; \
+		color = (double)(index + 1) * s_spacing / 255.0 + s_color_offset; \
+		color; \
+	})
+	
+static double area_index_to_color(const long area_index)
+{
+	// use RGB(gray) values to represent class ids
+	assert(area_index >= 0 && area_index <= MAX_SETTING_AREAS);
+	double color = INDEX_TO_COLOR(area_index);
+	
+#ifdef _DEBUG
+	long index_verify = COLOR_TO_INDEX(color);
+	assert(index_verify == area_index);
+#endif
+	return color;
+}
+
+static long color_to_area_index(const double color)
+{
+	long index = COLOR_TO_INDEX(color);
+	printf("%s(color=%f): index=%ld\n", __FUNCTION__, color, index);
+	if(index < 0 || index > MAX_SETTING_AREAS) return -1;
+
+	return index;
+}
+
+static void generate_area_masks(struct area_settings_dialog * settings)
+{
+	// generate area masks ( a fast way to find points in region )
+	
+	struct settings_private * priv = settings->priv;
+	cairo_surface_t * masks = priv->area_masks;
+	if(NULL == masks) {
+		masks = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, s_masks_width, s_masks_height);
+		assert(masks && cairo_surface_status(masks) == CAIRO_STATUS_SUCCESS);
+		priv->area_masks = masks;
+	}
+	
+	long num_areas = settings->num_areas;
+	if(num_areas == 0) num_areas = 1;
+	struct area_setting * areas = settings->areas;
+	if(areas[0].num_vertexes <= 0) return;
+	
+	
+	cairo_t *cr = cairo_create(masks);
+	cairo_set_source_rgb(cr, 0, 0, 0);
+	cairo_paint(cr);
+	
+	debug_printf("%s(): draw masks: num_areas=%d, areas[0].num_vertexes = %d\n", 
+		__FUNCTION__, 
+		(int)num_areas, 
+		(int)areas[0].num_vertexes);
+	for(long area_index = 0; area_index < num_areas; ++area_index) {
+		double color = area_index_to_color(area_index);
+		cairo_set_line_width(cr, 1);
+		printf("color: %f\n", color);
+		
+		printf("num_vertex: %d, vertexes: [ (%f,%f), ...]\n", 
+			(int)areas[area_index].num_vertexes,
+			areas[area_index].vertexes[0].x,
+			areas[area_index].vertexes[0].y);
+		
+		struct area_setting * area = &areas[area_index];
+		if(area->num_vertexes >= 3) {
+			int ii = 0;
+			double x = area->vertexes[ii].x * s_masks_width;
+			double y = area->vertexes[ii].y * s_masks_height;
+			
+			printf("vertexes[%d]: %f, %f\n", ii, x, y);
+			cairo_move_to(cr, x, y);
+			for(ii = 1; ii < area->num_vertexes; ++ii) {
+				x = area->vertexes[ii].x * s_masks_width;
+				y = area->vertexes[ii].y * s_masks_height;
+				printf("vertexes[%d]: %f, %f\n", ii, x, y);
+				cairo_line_to(cr, x, y);
+			}
+			cairo_close_path(cr);
+			
+			cairo_set_source_rgba(cr, color, color, color, 1);
+			cairo_fill_preserve(cr);
+			cairo_stroke(cr);
+		}
+	}
+	cairo_destroy(cr);
+	cairo_surface_mark_dirty(masks);
+	cairo_surface_write_to_png(masks, "masks.png");
+	return;
+}
+
+static long area_settings_dialog_open(struct area_settings_dialog * settings, const input_frame_t * bk_image)
 {
 	struct settings_private * priv = settings->priv;
 	assert(priv->dlg);
@@ -292,13 +398,52 @@ static guint area_settings_dialog_open(struct area_settings_dialog * settings, c
 	
 	gtk_widget_set_sensitive(priv->parent_window, FALSE);
 	
-	guint response_id = gtk_dialog_run(GTK_DIALOG(priv->dlg));
+	long response_id = gtk_dialog_run(GTK_DIALOG(priv->dlg));
 	gtk_widget_hide(priv->dlg);
 	
 	gtk_widget_set_sensitive(priv->parent_window, TRUE);
 	
+	if(response_id != GTK_RESPONSE_APPLY) return response_id;
+	
+	settings->num_areas = 0;
+	if(settings->areas[0].num_vertexes >= 3) {
+		settings->num_areas = 1;
+		generate_area_masks(settings);
+	}
+	if(priv->debug_window) {
+		if(!gtk_widget_is_visible(priv->debug_window)) {
+			gtk_widget_show_all(priv->debug_window);
+		}
+		if(priv->debug_da) gtk_widget_queue_draw(priv->debug_da);
+	}
+	
 	return response_id;
 }
+
+static long pt_in_area(struct area_settings_dialog * settings, double x, double y)
+{
+	assert(settings && settings->priv);
+	struct settings_private * priv = settings->priv;
+	if(NULL == priv->area_masks) return -1;
+	if(x < 0 || y < 0 || x > 1 || y > 1) return -1;
+	
+	int x_pos = x * s_masks_width;
+	int y_pos = y * s_masks_height;
+	const unsigned char * masks_data = cairo_image_surface_get_data(priv->area_masks);
+	printf("pos: %dx%d\n", x_pos, y_pos);
+	
+	priv->debug_x_pos = x_pos;
+	priv->debug_y_pos = y_pos;
+	
+	int pt_pos = y_pos * s_masks_width + x_pos;
+	double color = ((double)masks_data[pt_pos * 4]) / 255.0;
+	long area_index = color_to_area_index(color);
+	
+	printf("color: %f, index: %ld\n", color, area_index);
+	gtk_widget_queue_draw(priv->debug_da);
+	return area_index;
+}
+
 
 
 static void on_da_resize(GtkWidget * da, GdkRectangle *allocation, struct area_settings_dialog * settings)
@@ -366,6 +511,7 @@ static struct settings_private *settings_private_new(struct area_settings_dialog
 	return priv;
 }
 
+static void create_debug_window(struct settings_private * settings, GtkWidget * parent_window);
 struct area_settings_dialog * area_settings_dialog_new(GtkWidget * parent_window, const char * title, void * user_data)
 {
 	struct area_settings_dialog * settings = calloc(1, sizeof(*settings));
@@ -373,11 +519,59 @@ struct area_settings_dialog * area_settings_dialog_new(GtkWidget * parent_window
 	
 	settings->user_data = user_data;
 	settings->open = area_settings_dialog_open;
+	settings->pt_in_area = pt_in_area;
 	
 	struct settings_private *priv = settings_private_new(settings, parent_window, title);
 	assert(priv);
 	settings->priv = priv;
+	
+	create_debug_window(priv, parent_window);
 
 	return settings;
 }
 
+#ifdef _DEBUG
+static gboolean on_debug_window_draw(GtkWidget * da, cairo_t * cr, struct settings_private * priv)
+{
+	assert(priv);
+	if(priv->area_masks) {
+		cairo_set_source_surface(cr, priv->area_masks, 0, 0);
+		cairo_paint(cr);
+	}else {
+		cairo_set_source_rgb(cr, 1, 1, 1);
+		cairo_paint(cr);
+	}
+	
+	if(priv->debug_x_pos > 0 && priv->debug_y_pos > 0) {
+		cairo_set_line_width(cr, 1);
+		cairo_set_source_rgba(cr, 1, 0, 0, 1);
+		cairo_arc(cr, priv->debug_x_pos, priv->debug_y_pos, 3, 0, M_PI * 2);
+		cairo_fill_preserve(cr);
+		cairo_stroke(cr);
+	}
+	return FALSE;
+}
+#endif
+static void create_debug_window(struct settings_private * priv, GtkWidget * parent_window)
+{
+#ifdef _DEBUG
+	GtkWidget * dlg = gtk_dialog_new_with_buttons("debug", GTK_WINDOW(parent_window), 
+		GTK_DIALOG_DESTROY_WITH_PARENT, 
+		"hide", GTK_RESPONSE_CANCEL, 
+		NULL);
+	gtk_window_set_transient_for(GTK_WINDOW(dlg), GTK_WINDOW(parent_window));
+	gtk_window_set_position(GTK_WINDOW(dlg), GTK_WIN_POS_CENTER_ON_PARENT);
+	
+	GtkWidget * content_area = gtk_dialog_get_content_area(GTK_DIALOG(dlg));
+	GtkWidget * da = gtk_drawing_area_new();
+	gtk_container_add(GTK_CONTAINER(content_area), da);
+	gtk_widget_set_size_request(da, s_masks_width, s_masks_height);
+	
+	g_signal_connect(da, "draw", G_CALLBACK(on_debug_window_draw), priv);
+	
+	priv->debug_window = dlg;
+	priv->debug_da = da;
+	
+#endif
+	return;
+}

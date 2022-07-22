@@ -160,14 +160,14 @@ static void on_da_resize(GtkWidget * da, GdkRectangle * allocation, struct da_pa
 
 static gboolean on_da_draw(GtkWidget * da, cairo_t * cr, struct da_panel * panel)
 {
-	if(panel->on_draw) return panel->on_draw(panel, cr, panel->shell);
-	
 	if(panel->width < 1|| panel->height < 1) return FALSE;
 	if(NULL == panel->surface 
 		|| panel->image_width < 1 || panel->image_height < 1)
 	{
 		cairo_set_source_rgba(cr, 0, 0, 0, 1);
 		cairo_paint(cr);
+		
+		if(panel->on_draw) return panel->on_draw(panel, cr, panel->shell);
 		return FALSE;
 	}
 	
@@ -207,6 +207,8 @@ static gboolean on_da_draw(GtkWidget * da, cairo_t * cr, struct da_panel * panel
 	cairo_scale(cr, sx, sy);
 	cairo_set_source_surface(cr, panel->surface, panel->x_offset, panel->y_offset);
 	cairo_paint(cr);
+	
+	if(panel->on_draw) return panel->on_draw(panel, cr, panel->shell);
 	return FALSE;
 }
 	
