@@ -50,3 +50,7 @@ backup/
 !libtensorflow-c
 
 !src/cpps
+
+!deepsort-clib
+!deepsort-clib/src
+!deepsort-clib/include
