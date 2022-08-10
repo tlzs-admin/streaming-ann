@@ -555,7 +555,8 @@ static int video_source2_play(struct video_source2 * video)
 	if(!video->is_running) relaunch_pipeline(video->gst_command, video);
 
 	//debug_printf("%s(%p): pipeline=%p...\n", __FUNCTION__, video, video->pipeline);
-	assert(video->pipeline);
+	//assert(video->pipeline);
+	if(NULL == video->pipeline) return -1;
 
 	GstStateChangeReturn ret_code = gst_element_set_state(video->pipeline, GST_STATE_PLAYING);
 	if(ret_code == GST_STATE_CHANGE_FAILURE) {
