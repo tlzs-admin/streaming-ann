@@ -43,6 +43,7 @@
 #include "utils.h"
 
 #define PROTOCOL_rtsp       "rtsp://"
+#define PROTOCOL_rtspt      "rtspt://"
 #define PROTOCOL_https      "https://"
 #define PROTOCOL_file       "file://"
 #define PROTOCOL_v4l2       "/dev/video"
@@ -55,6 +56,7 @@ enum video_source_type
 	video_source_type_v4l2,
 	video_source_type_https,
 	video_source_type_rtsp,
+	video_source_type_rtspt,
 	video_source_types_count
 };
 
@@ -77,6 +79,7 @@ static const char * s_video_source_protocols[video_source_types_count] = {
 	[video_source_type_v4l2] = PROTOCOL_v4l2,
 	[video_source_type_https] = PROTOCOL_https,
 	[video_source_type_rtsp] = PROTOCOL_rtsp,
+	[video_source_type_rtspt] = PROTOCOL_rtspt,
 };
 
 static gboolean is_regular_file(const char *path_name)
@@ -224,7 +227,7 @@ static gboolean video_source_on_error(GstBus * bus, GstMessage * message, struct
 	
 	return FALSE;
 }
-static void on_state_changed(GstBus * bus, GstMessage * message, struct video_source2 * video)
+static gboolean on_state_changed(GstBus * bus, GstMessage * message, struct video_source2 * video)
 {
 	GstState old_state, new_state, pending_state;
 	gst_message_parse_state_changed(message, &old_state, &new_state, &pending_state);
@@ -244,7 +247,7 @@ static void on_state_changed(GstBus * bus, GstMessage * message, struct video_so
 		
 		if(video->on_state_changed) video->on_state_changed(video, old_state, new_state, video->user_data);
 	}
-	return;
+	return FALSE;
 }
 
 static long video_source2_get_frame(struct video_source2 * video, long prev_frame, input_frame_t * dst)
@@ -383,7 +386,7 @@ static GstElement * relaunch_pipeline(const char * gst_command, struct video_sou
 	video->filter = filter;
 	video->audio_volume = audio_volume;
 	
-	gst_element_set_state(video->pipeline, GST_STATE_NULL);
+	gst_element_set_state(video->pipeline, GST_STATE_READY);
 
 	video->is_running = 1;
 	return pipeline;
@@ -485,10 +488,12 @@ static int video_source2_set_uri2(struct video_source2 * video, const char * uri
 		}
 		return -1;
 	case video_source_type_rtsp:
+	case video_source_type_rtspt:
 		snprintf(gst_command, sizeof(gst_command), 	
-			"rtspsrc location='%s' ! %s " BGRA_PIPELINE, uri, default_decoder,
+			"uridecodebin uri=\"%s\" ! videoconvert " BGRA_PIPELINE, uri, 
 			width, height);
 		break;
+		
 	default:
 		return -1;
 	}
@@ -501,6 +506,8 @@ static int video_source2_set_uri2(struct video_source2 * video, const char * uri
 	video->uri = strdup(uri);
 	
 	relaunch_pipeline(gst_command, video);
+	
+	video->play(video);
 	return 0;
 }
 static int video_source2_play(struct video_source2 * video);
@@ -569,7 +576,7 @@ static int video_source2_pause(struct video_source2 * video)
 static int video_source2_stop(struct video_source2 * video)
 {
 	if(NULL == video->pipeline) return -1;
-	gst_element_set_state(video->pipeline, GST_STATE_NULL);
+	gst_element_set_state(video->pipeline, GST_STATE_READY);
 	video->is_running = 0;
 	return 0;
 }

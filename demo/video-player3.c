@@ -1233,11 +1233,11 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 				}
 				
 				double center_x = dets[i].x + dets[i].cx / 2;
-				double center_y = dets[i].y + dets[i].cy / 2;
+				double bottom_y = dets[i].y + dets[i].cy;
 				
 				int area_index = -1;
 				if(area_settings_flag) {
-					area_index = settings->pt_in_area(settings, center_x, center_y);
+					area_index = settings->pt_in_area(settings, center_x, bottom_y);
 				}
 				printf("area_index: %d\n", area_index);
 				
