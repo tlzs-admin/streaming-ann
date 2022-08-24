@@ -409,37 +409,33 @@ static int video_source2_set_uri2(struct video_source2 * video, const char * uri
 	
 	char gst_command[8192] = "";
 	
-	static const char * default_decoder = " decodebin ! videoconvert ";
+	//~ static const char * default_decoder = " decodebin ! videoconvert ";
 	static const char * hls_decoder = " hlsdemux ! decodebin ! videoconvert ";
 
-#ifndef JETSON_TX2
-	static const char * mp4_decoder = " qtdemux name=demux "
-				" demux.audio_0 ! queue silent=true ! decodebin ! audioconvert ! audioresample "
-				" ! volume name=\"audio_volume\" volume=0.5 ! autoaudiosink "
-				" demux.video_0 ! queue silent=true ! decodebin ! videoconvert ";
-#else
-	static const char * mp4_decoder = " qtdemux name=demux "
+//~ #ifndef JETSON_TX2
+	//~ static const char * mp4_decoder = " qtdemux name=demux "
 				//~ " demux.audio_0 ! queue silent=true ! decodebin ! audioconvert ! audioresample "
 				//~ " ! volume name=\"audio_volume\" volume=0.5 ! autoaudiosink "
-				" demux.video_0 ! queue silent=true ! h264parse ! omxh264dec ! videoconvert ";
-#endif
-	static const char * mkv_decoder = " matroskademux name=demux "
-				" demux.audio_0 ! queue silent=true ! decodebin ! audioconvert ! audioresample "
-				" ! volume name=\"audio_volume\" volume=0.5 ! autoaudiosink "
-				" demux.video_0 ! queue silent=true ! decodebin ! videoconvert ";
-	static const char * rmvb_decoder = " rmdemux name=demux "
+				//~ " demux.video_0 ! queue silent=true ! decodebin ! videoconvert ";
+//~ #else
+	//~ static const char * mp4_decoder = " qtdemux name=demux "
+				//~ " demux.video_0 ! queue silent=true ! h264parse ! omxh264dec ! videoconvert ";
+//~ #endif
+	//~ static const char * mkv_decoder = " matroskademux name=demux "
+				//~ " demux.audio_0 ! queue silent=true ! decodebin ! audioconvert ! audioresample "
+				//~ " ! volume name=\"audio_volume\" volume=0.5 ! autoaudiosink "
+				//~ " demux.video_0 ! queue silent=true ! decodebin ! videoconvert ";
+	//~ static const char * rmvb_decoder = " rmdemux name=demux "
+				//~ " demux.video_0 ! queue silent=true ! decodebin ! videoconvert ";
+	//~ static const char * avi_decoder = " avidemux name=demux "
 				//~ " demux.audio_0 ! queue ! decodebin ! audioconvert ! audioresample "   ///< @BUG unable to sync with audio channels 
 				//~ " ! volume name=\"audio_volume\" volume=0.5 ! autoaudiosink "
-				" demux.video_0 ! queue silent=true ! decodebin ! videoconvert ";
-	static const char * avi_decoder = " avidemux name=demux "
-				" demux.audio_0 ! queue ! decodebin ! audioconvert ! audioresample "   ///< @BUG unable to sync with audio channels 
-				" ! volume name=\"audio_volume\" volume=0.5 ! autoaudiosink "
-				" demux.video_0 ! queue silent=true ! decodebin ! videoconvert ";
+				//~ " demux.video_0 ! queue silent=true ! decodebin ! videoconvert ";
 	
 
 #define BGRA_PIPELINE " ! videoscale ! video/x-raw,format=BGRA,width=%d,height=%d ! videoconvert ! identity name=filter ! fakesink name=sink sync=true"
 
-	const char * decoder = default_decoder;
+	//~ const char * decoder = default_decoder;
 	char embed_uri[4096] = "";
 	switch(type) {
 	case video_source_type_v4l2:
@@ -452,17 +448,18 @@ static int video_source2_set_uri2(struct video_source2 * video, const char * uri
 		
 		subtype &= video_source_subtype_file_mask;
 		printf("subtype: %x\n", subtype);
-		switch(subtype) {
-		case video_source_subtype_mp4:  decoder = mp4_decoder;  break;
-		case video_source_subtype_mkv:  decoder = mkv_decoder;  break;
-		case video_source_subtype_rmvb: decoder = rmvb_decoder; break;
-		case video_source_subtype_avi:  decoder = avi_decoder;  break;
-		default:
-			break;
-		}
+		//~ switch(subtype) {
+		//~ case video_source_subtype_mp4:  decoder = mp4_decoder;  break;
+		//~ case video_source_subtype_mkv:  decoder = mkv_decoder;  break;
+		//~ case video_source_subtype_rmvb: decoder = rmvb_decoder; break;
+		//~ case video_source_subtype_avi:  decoder = avi_decoder;  break;
+		//~ default:
+			//~ break;
+		//~ }
 		snprintf(gst_command, sizeof(gst_command), 	
-			"filesrc location=\"%s\" ! %s " BGRA_PIPELINE,
-			uri, decoder,
+			//"filesrc location=\"%s\" ! %s " BGRA_PIPELINE,
+			"uridecodebin uri=\"file://%s\" ! videoconvert " BGRA_PIPELINE, 
+			uri, 
 			width, height);
 		break;
 	case video_source_type_https:
@@ -481,8 +478,10 @@ static int video_source2_set_uri2(struct video_source2 * video, const char * uri
 			return video->set_uri2(video, embed_uri, width, height);
 		}else {
 			snprintf(gst_command, sizeof(gst_command), 	
-				"souphttpsrc is-live=true location=\"%s\" ! %s " BGRA_PIPELINE,
-				uri, mp4_decoder,
+				//~ "souphttpsrc is-live=true location=\"%s\" ! %s " BGRA_PIPELINE,
+				//~ uri, mp4_decoder,
+				"uridecodebin uri=\"%s\" ! videoconvert " BGRA_PIPELINE, 
+				uri, 
 				width, height);
 			break;
 		}
