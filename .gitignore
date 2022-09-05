@@ -54,3 +54,5 @@ backup/
 !deepsort-clib
 !deepsort-clib/src
 !deepsort-clib/include
+
+!demo/video_player4

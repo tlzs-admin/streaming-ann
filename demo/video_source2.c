@@ -186,8 +186,6 @@ static int get_youtube_embed_uri(const char * youtube_url, char embed_uri[static
 	return uri?rc:-1;
 }
 
-
-
 /***********************************************************************************
  * video_source
 ***********************************************************************************/
@@ -219,11 +217,14 @@ static gboolean video_source_on_error(GstBus * bus, GstMessage * message, struct
 	g_error_free(gerr);
 	g_free(debug_info);
 	
-	gst_element_set_state(video->pipeline, GST_STATE_READY);
-	video->is_running = 0;
-	video->stopped = 1;
-	
-	if(video->on_error) video->on_error(video, video->user_data);
+	if(video) {
+		if(video->pipeline) {
+			gst_element_set_state(video->pipeline, GST_STATE_READY);
+		}
+		video->is_running = 0;
+		video->stopped = 1;
+		if(video->on_error) video->on_error(video, video->user_data);
+	}
 	
 	return FALSE;
 }
@@ -553,7 +554,7 @@ static int video_source2_play(struct video_source2 * video)
 {
 	if(!video->is_running) relaunch_pipeline(video->gst_command, video);
 
-	//debug_printf("%s(%p): pipeline=%p...\n", __FUNCTION__, video, video->pipeline);
+	debug_printf("%s(%p): pipeline=%p...\n", __FUNCTION__, video, video->pipeline);
 	//assert(video->pipeline);
 	if(NULL == video->pipeline) return -1;
 

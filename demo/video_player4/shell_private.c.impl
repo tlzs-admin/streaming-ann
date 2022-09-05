@@ -1,0 +1,100 @@
+/*
+ * shell_private.c.impl
+ * 
+ * Copyright 2022 chehw <hongwei.che@gmail.com>
+ * 
+ * The MIT License (MIT)
+ * Permission is hereby granted, free of charge, to any person obtaining a copy 
+ * of this software and associated documentation files (the "Software"), to deal 
+ * in the Software without restriction, including without limitation the rights 
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell 
+ * copies of the Software, and to permit persons to whom the Software is 
+ * furnished to do so, subject to the following conditions:
+ * 
+ * The above copyright notice and this permission notice shall be included in all 
+ * copies or substantial portions of the Software.
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE 
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, 
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS 
+ * IN THE SOFTWARE.
+ */
+
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <assert.h>
+#include <math.h>
+
+#include "da_panel.h"
+#include "app.h"
+#include "shell.h"
+#include "shell_private.h"
+
+struct shell_private * shell_private_new(struct shell_context * shell)
+{
+	struct shell_private *priv = calloc(1, sizeof(*priv));
+	assert(priv);
+	if(NULL == priv) return NULL;
+	
+	priv->shell = shell;
+	
+	
+	return priv;
+}
+
+static int init_windows(struct shell_context *shell)
+{
+	struct app_context *app = shell->app;
+	struct shell_private * priv = shell->priv;
+	const char *title = app->title;
+	json_object *jconfig = app->jconfig;
+	json_object *jstreams = NULL;
+	json_bool ok = json_object_object_get_ex(jconfig, "streams", &jstreams);
+	
+	int num_streams = 1;
+	if(ok && jstreams) num_streams = json_object_array_length(jstreams);
+	
+	printf("num_streams: %d\n", num_streams);
+	if(num_streams > 0) {
+		priv->panels = calloc(num_streams, sizeof(*priv->panels));
+		assert(priv->panels);
+	}
+
+	int image_width = 640;
+	int image_height = 360;
+	
+	GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+	GtkWidget *header_bar = gtk_header_bar_new();
+	GtkWidget *grid = gtk_grid_new();
+	
+	gtk_window_set_default_size(GTK_WINDOW(window), 1280, 800);
+	gtk_container_add(GTK_CONTAINER(window), grid);
+	gtk_window_set_titlebar(GTK_WINDOW(window), header_bar);
+	gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(header_bar), TRUE);
+	gtk_header_bar_set_title(GTK_HEADER_BAR(header_bar), title);
+	
+	
+	priv->window = window;
+	priv->header_bar = header_bar;
+	priv->grid = grid;
+	
+	int num_cols = sqrt(num_streams);
+	for(int i = 0; i < num_streams; ++i) {
+		struct da_panel * panel = da_panel_init(NULL, image_width, image_height, shell);
+		priv->panels[i] = panel;
+		
+		gtk_widget_set_size_request(panel->frame, 320, 180);
+		gtk_grid_attach(GTK_GRID(grid), panel->frame, 
+			i % num_cols, i / num_cols, 1, 1);
+	}
+	
+	gtk_widget_show_all(window);
+	g_signal_connect_swapped(window, "destroy", G_CALLBACK(shell->stop), shell);
+	return 0;
+}
+
