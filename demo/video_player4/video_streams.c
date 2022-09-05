@@ -30,8 +30,8 @@
 #include <assert.h>
 
 #include "utils.h"
-
 #include "video_streams.h"
+
 
 static long video_stream_get_frame(struct video_stream *stream, long prev_frame, input_frame_t *frame)
 {

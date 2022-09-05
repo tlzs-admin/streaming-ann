@@ -34,12 +34,6 @@
 #include "app.h"
 #include "ann-plugin.h"
 
-#include <libintl.h>	// gettext()
-#ifndef _
-#define _(str) gettext(str)
-#endif
-
-
 #define TEXT_DOMAIN "demo"
 static struct app_context g_app[1];
 int main(int argc, char ** argv)

@@ -5,11 +5,12 @@
 #include <gtk/gtk.h>
 
 #include "shell.h"
-#include "da_panel.h"
+#include "stream_viewer.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
 
 struct shell_private
 {
@@ -20,9 +21,8 @@ struct shell_private
 	GtkWidget * grid;
 	GtkWidget * header_bar;
 	
-
-	int num_inputs;
-	da_panel_t **panels;
+	int num_streams;
+	struct stream_viewer * views;
 	guint timer_id;
 	
 	double fps;

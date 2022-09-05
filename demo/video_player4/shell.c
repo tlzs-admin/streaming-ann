@@ -119,6 +119,15 @@ static void draw_frame(da_panel_t *panel, const input_frame_t *frame, json_objec
 	return;
 }
 
+static void input_frame_clear_all(input_frame_t *frame)
+{
+	json_object *jresult = frame->meta_data;
+	frame->meta_data = NULL;
+	if(jresult) json_object_put(jresult);
+	
+	input_frame_clear(frame);
+}
+
 static gboolean on_timeout(struct shell_context *shell)
 {
 	struct app_context *app = shell->app;
@@ -137,12 +146,10 @@ static gboolean on_timeout(struct shell_context *shell)
 		long frame_number = streams[i].get_frame(&streams[i], 0, frame);
 		if(frame_number <= 0) continue;
 		
-		da_panel_t *panel = priv->panels[i];
+		da_panel_t *panel = priv->views[i].panel;
 		draw_frame(panel, frame, NULL);
 		
-		input_frame_clear(frame);
+		input_frame_clear_all(frame);
 	}
-	
-	
 	return G_SOURCE_CONTINUE;
 }

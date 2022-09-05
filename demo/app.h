@@ -5,6 +5,11 @@
 #include <json-c/json.h>
 #include <limits.h>
 
+#include <libintl.h>	// gettext()
+#ifndef _
+#define _(str) gettext(str)
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -36,6 +41,7 @@ struct app_context
 
 struct app_context *app_context_init(struct app_context *app, void * user_data);
 void app_context_cleanup(struct app_context *app);
+
 
 #ifdef __cplusplus
 }

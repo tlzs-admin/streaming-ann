@@ -34,6 +34,7 @@
 #include "app.h"
 #include "shell.h"
 #include "shell_private.h"
+#include "stream_viewer.h"
 
 struct shell_private * shell_private_new(struct shell_context * shell)
 {
@@ -61,8 +62,8 @@ static int init_windows(struct shell_context *shell)
 	
 	printf("num_streams: %d\n", num_streams);
 	if(num_streams > 0) {
-		priv->panels = calloc(num_streams, sizeof(*priv->panels));
-		assert(priv->panels);
+		priv->views = calloc(num_streams, sizeof(*priv->views));
+		assert(priv->views);
 	}
 
 	int image_width = 640;
@@ -83,14 +84,10 @@ static int init_windows(struct shell_context *shell)
 	priv->header_bar = header_bar;
 	priv->grid = grid;
 	
-	int num_cols = sqrt(num_streams);
+	int num_cols = sqrt(num_streams) + 0.5;
 	for(int i = 0; i < num_streams; ++i) {
-		struct da_panel * panel = da_panel_init(NULL, image_width, image_height, shell);
-		priv->panels[i] = panel;
-		
-		gtk_widget_set_size_request(panel->frame, 320, 180);
-		gtk_grid_attach(GTK_GRID(grid), panel->frame, 
-			i % num_cols, i / num_cols, 1, 1);
+		struct stream_viewer * view = stream_viewer_init(&priv->views[i], i, image_width, image_height, shell);
+		gtk_grid_attach(GTK_GRID(grid), view->grid, i % num_cols, i / num_cols, 1, 1);
 	}
 	
 	gtk_widget_show_all(window);
