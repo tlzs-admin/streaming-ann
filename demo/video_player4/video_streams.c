@@ -71,13 +71,11 @@ static void * video_stream_thread(void *user_data)
 		.tv_nsec = 10 * 1000 * 1000, // 10ms
 	};
 	
-	pthread_mutex_lock(&stream->cond_mutex.mutex);
+//	pthread_mutex_lock(&stream->cond_mutex.mutex);
 	while(!stream->quit) {
 		if(stream->paused) {
-			rc = pthread_cond_wait(&stream->cond_mutex.cond, &stream->cond_mutex.mutex);
-			if(rc == -1) { perror("pthread_cond_wait"); break; }
-			
-			if(stream->quit) break;
+			nanosleep(&interval, NULL);
+			continue;
 		}
 		
 		struct video_source2 *video = stream->video;
@@ -112,34 +110,24 @@ static void * video_stream_thread(void *user_data)
 				if(0 == rc && jresult) {
 					json_object_object_add(jresults, id, jresult);
 				}
-			}
-		
-			
+			}	
 			swap_frame_buffer(stream);
 		}else {
 			swap_frame_buffer(stream);
 			nanosleep(&interval, NULL);
-			continue;
 		}
 		
 	}
 	
-	pthread_mutex_unlock(&stream->cond_mutex.mutex);
+//	pthread_mutex_unlock(&stream->cond_mutex.mutex);
 	pthread_exit((void *)(intptr_t)rc);
 }
 
 static int video_stream_run(struct video_stream *stream)
 {
 	pthread_mutex_lock(&stream->cond_mutex.mutex);
-	if(stream->paused) {
-		stream->paused = 0;
-		struct video_source2 *video = stream->video;
-		if(video && !video->is_running) video->play(video);
-		
-		pthread_cond_signal(&stream->cond_mutex.cond);
-	}
+	stream->paused = 0;
 	pthread_mutex_unlock(&stream->cond_mutex.mutex);
-	
 	return 0;
 }
 
@@ -148,11 +136,10 @@ static int video_stream_stop(struct video_stream *stream)
 	pthread_mutex_lock(&stream->cond_mutex.mutex);
 	
 	stream->quit = 1;
-	stream->paused = 0;
+	
 	struct video_source2 *video = stream->video;
 	if(video && video->is_running) video->stop(video);
 	
-	pthread_cond_signal(&stream->cond_mutex.cond);
 	pthread_mutex_unlock(&stream->cond_mutex.mutex);
 	return 0;
 }
@@ -161,12 +148,7 @@ static int video_stream_stop(struct video_stream *stream)
 static int video_stream_pause(struct video_stream *stream)
 {
 	pthread_mutex_lock(&stream->cond_mutex.mutex);
-	
 	stream->paused = 1;
-	struct video_source2 *video = stream->video;
-	if(video && video->is_running) video->pause(video);
-	
-	pthread_cond_signal(&stream->cond_mutex.cond);
 	pthread_mutex_unlock(&stream->cond_mutex.mutex);
 	return 0;
 }

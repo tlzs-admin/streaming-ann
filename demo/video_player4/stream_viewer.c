@@ -78,6 +78,8 @@ static void on_uri_changed(GtkWidget * widget, struct stream_viewer *viewer)
 		if(counters && counters->clear_all) counters->clear_all(counters);
 		
 		int rc = video->set_uri2(video, uri, stream->image_width, stream->image_height);
+		rc = video->play(video);
+		
 		rc = stream->run(stream);
 		
 		if(0 == rc) {
