@@ -6,6 +6,8 @@
 #include "classes_counter.h"
 #include "da_panel.h"
 
+#include "area-settings.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -30,6 +32,10 @@ struct stream_viewer
 	int show_counters;
 	struct classes_counter_context counter_ctx[1];
 	GtkWidget *context_menu;
+	
+	int show_area_settings;
+	struct area_settings_dialog *settings_dlg;
+	
 };
 
 struct stream_viewer * stream_viewer_init(struct stream_viewer *viewer, int index, int min_width, int min_height, struct shell_context *shell);

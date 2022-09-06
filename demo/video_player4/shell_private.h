@@ -29,6 +29,9 @@ struct shell_private
 	json_object * jcolors;
 	GdkRGBA default_fg;
 	
+	
+	int fullscreen_status; 
+	int fullscreen_viewer_index;
 };
 
 #ifdef __cplusplus

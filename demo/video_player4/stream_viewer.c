@@ -159,6 +159,39 @@ static void on_show_hide_toolbars_toggled(GtkCheckMenuItem *item, struct stream_
 	gtk_widget_set_visible(viewer->hbox[1], active);
 }
 
+
+int fullscreen_mode_switch(struct shell_context * shell);
+static void on_stream_viewer_fullscreen_mode_switch(GtkCheckMenuItem *item, struct stream_viewer *viewer)
+{
+	struct shell_context *shell = viewer->shell;
+	struct shell_private *priv = shell->priv;
+	
+	priv->fullscreen_viewer_index = viewer->index;
+	fullscreen_mode_switch(shell);
+	return;
+}
+
+static void on_settings_menu_clicked(GtkMenuItem *item, struct stream_viewer *viewer)
+{
+	struct area_settings_dialog * dlg = viewer->settings_dlg;
+	assert(dlg);
+	
+	struct video_stream *stream = viewer->stream;
+	if(stream) {
+		input_frame_t frame[1];
+		memset(frame, 0, sizeof(frame));
+		
+		long frame_number = stream->get_frame(stream, -1, frame);
+		if(frame_number > 0) {
+			long response_id = dlg->open(dlg, frame);
+			printf("response_id: %ld\n", response_id);
+		}
+		input_frame_clear_all(frame);
+	}	
+	
+	return;
+}
+
 GtkWidget * create_options_menu(struct stream_viewer * viewer)
 {
 	struct shell_context *shell = viewer->shell;
@@ -172,10 +205,16 @@ GtkWidget * create_options_menu(struct stream_viewer * viewer)
 	GtkWidget * separator = gtk_separator_menu_item_new();
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), separator);
 	
-	//~ GtkWidget * options = gtk_menu_item_new_with_label("options");
-	//~ gtk_menu_shell_append(GTK_MENU_SHELL(menu), options);
-	//~ GtkWidget * sub_menu = gtk_menu_new();
-	//~ gtk_menu_item_set_submenu(GTK_MENU_ITEM(options), sub_menu);
+	GtkWidget * settings_menu = gtk_menu_item_new_with_label(_("Settings"));
+	g_signal_connect(settings_menu, "activate", G_CALLBACK(on_settings_menu_clicked), viewer);
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), settings_menu);
+	
+	GtkWidget * show_settings = gtk_check_menu_item_new_with_label(_("Show settings area"));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), show_settings);
+	g_signal_connect(show_settings, "toggled", G_CALLBACK(on_check_menu_toggled_int_value), &viewer->show_area_settings);
+	
+	separator = gtk_separator_menu_item_new();
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), separator);
 	
 	GtkWidget * show_counters_menu = gtk_check_menu_item_new_with_label(_("Show Counters List"));
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), show_counters_menu);
@@ -203,10 +242,9 @@ GtkWidget * create_options_menu(struct stream_viewer * viewer)
 	separator = gtk_separator_menu_item_new();
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), separator);
 	
-	//~ GtkWidget * fullscreen_switch_menu = gtk_check_menu_item_new_with_label(_("Full Screen"));
-	//~ g_signal_connect(fullscreen_switch_menu, "toggled", G_CALLBACK(on_fullscreen_switch_toggled), viewer);
-	//~ shell->fullscreen_switch_menu = fullscreen_switch_menu;
-	//~ gtk_menu_shell_append(GTK_MENU_SHELL(menu), fullscreen_switch_menu);
+	GtkWidget * fullscreen_switch_menu = gtk_menu_item_new_with_label(_("Full Screen"));
+	g_signal_connect(fullscreen_switch_menu, "activate", G_CALLBACK(on_stream_viewer_fullscreen_mode_switch), viewer);
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), fullscreen_switch_menu);
 	
 	separator = gtk_separator_menu_item_new();
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), separator);
@@ -333,6 +371,7 @@ struct stream_viewer * stream_viewer_init(struct stream_viewer *viewer, int inde
 	viewer->index = index;
 	
 	classes_counter_context_init(viewer->counter_ctx, viewer);
+	viewer->settings_dlg = area_settings_dialog_new(shell->priv->window, "area settings", viewer);
 	
 	struct video_stream *stream = viewer->stream;
 	if(NULL == stream) {
@@ -353,7 +392,7 @@ struct stream_viewer * stream_viewer_init(struct stream_viewer *viewer, int inde
 		uri = video->uri;
 	}
 	
-	GtkWidget * grid = gtk_grid_new();
+	GtkWidget *grid = gtk_grid_new();	
 	GtkWidget * hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 	gtk_grid_attach(GTK_GRID(grid), hbox, 0, 0, 1, 1);
 	viewer->hbox[0] = hbox;

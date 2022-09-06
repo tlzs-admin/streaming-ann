@@ -224,7 +224,7 @@ static void draw_ai_result(cairo_surface_t *surface, json_object *jresult, json_
 	
 	struct classes_counter_context * counters = viewer->counter_ctx;
 	counters->reset(counters);
-	
+	struct area_settings_dialog * settings = viewer->settings_dlg;
 	for(ssize_t i = 0; i < num_detections; ++i) {
 		gboolean color_parsed = FALSE;
 		GdkRGBA fg_color;
@@ -234,10 +234,26 @@ static void draw_ai_result(cairo_surface_t *surface, json_object *jresult, json_
 		const char *color_name = NULL;
 		if(NULL == class_name) continue;
 		
-		struct class_counter *counter = counters->add_by_id(counters, dets[i].class_id);
+		double x = dets[i].x * width;
+		double y = dets[i].y * height;
+		double cx = dets[i].cx * width;
+		double cy = dets[i].cy * height;
+		
+		struct class_counter *counter = NULL;
+		int area_index = -1;
+		if(settings->num_areas > 0 && settings->areas[0].num_vertexes >= 3) {
+			double center_x = dets[i].x + dets[i].cx / 2;
+			double bottom_y = dets[i].y + dets[i].cy;
+			area_index = settings->pt_in_area(settings, center_x, bottom_y);
+			
+			if(area_index >= 0) {
+				counter = counters->add_by_id(counters, dets[i].class_id);
+			}
+		}else {
+			counter = counters->add_by_id(counters, dets[i].class_id);
+		}
 		if(counter) strncpy(counter->name, class_name, sizeof(counter->name));
 		
-
 		if(jcolors) {
 			json_object *jcolor = NULL;
 			ok = json_object_object_get_ex(jcolors, class_name, &jcolor);
@@ -245,11 +261,6 @@ static void draw_ai_result(cairo_surface_t *surface, json_object *jresult, json_
 			if(color_name) color_parsed = gdk_rgba_parse(&fg_color, color_name);
 		}
 		if(!color_parsed) gdk_rgba_parse(&fg_color, "green"); // default color
-		
-		double x = dets[i].x * width;
-		double y = dets[i].y * height;
-		double cx = dets[i].cx * width;
-		double cy = dets[i].cy * height;
 		
 		// draw text background
 		cairo_text_extents_t extents;
@@ -276,6 +287,31 @@ static void draw_ai_result(cairo_surface_t *surface, json_object *jresult, json_
 	return;
 }
 
+static void draw_area_settings(cairo_surface_t * surface, double width, double height, struct stream_viewer * viewer)
+{
+	if(width < 1 || height < 1) return;
+	struct area_setting * area = &viewer->settings_dlg->areas[0];
+	if(area->num_vertexes < 3) return;
+
+	double x = area->vertexes[0].x * width;
+	double y = area->vertexes[0].y * height;
+	
+	cairo_t * cr = cairo_create(surface);
+	cairo_move_to(cr, x, y);
+	for(int i = 1; i < area->num_vertexes; ++i) {
+		x = area->vertexes[i].x * width;
+		y = area->vertexes[i].y * height;
+		cairo_line_to(cr, x, y);
+	}
+	cairo_close_path(cr);
+	cairo_set_source_rgba(cr, 0, 1, 0, 0.6);
+	cairo_fill_preserve(cr);
+	cairo_set_source_rgba(cr, 1, 1, 0, 1);
+	cairo_stroke(cr);
+	cairo_destroy(cr);
+	return;
+}
+
 static void draw_frame(da_panel_t *panel, const input_frame_t *frame, json_object *jresult, json_object *jcolors, struct stream_viewer *viewer)
 {
 	if(NULL == frame || NULL == frame->data || frame->width < 1 || frame->height < 1) return;
@@ -295,12 +331,16 @@ static void draw_frame(da_panel_t *panel, const input_frame_t *frame, json_objec
 	memcpy(image_data, frame->data, frame->width * frame->height * 4);
 	cairo_surface_mark_dirty(surface);
 	
+	if(viewer->show_area_settings) {
+		draw_area_settings(surface, frame->width, frame->height, viewer);
+	}
+	
 	draw_ai_result(surface, jresult, jcolors, viewer);
 	gtk_widget_queue_draw(panel->da);
 	return;
 }
 
-static void input_frame_clear_all(input_frame_t *frame)
+void input_frame_clear_all(input_frame_t *frame)
 {
 	json_object *jresult = frame->meta_data;
 	frame->meta_data = NULL;

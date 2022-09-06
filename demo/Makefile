@@ -25,13 +25,14 @@ LIBS += $(shell pkg-config --libs  gtk+-3.0 gstreamer-1.0 json-c)
 LDFLAGS = $(CFLAGS) $(OPTIMIZE)
 
 COMMON_DEPS := video_source2.h da_panel.h classes_counter.h
-DEPS = app.h shell.h video_player4/shell_private.c.impl video_player4/video_streams.h
+DEPS = app.h shell.h video_player4/shell_private.c.impl video_player4/video_streams.h video_player4/area-settings.h
 
 COMMON_SOURCES := video_source2.c da_panel.c classes_counter.c
 COMMON_OBJECTS := $(COMMON_SOURCES:%.c=%.o)
 
 VIDEO_PLAYER4_SOURCES := video-player4.c video_player4/app.c video_player4/shell.c \
-                         video_player4/video_streams.c video_player4/stream_viewer.c 
+                         video_player4/video_streams.c video_player4/stream_viewer.c \
+                         video_player4/area-settings.c
                          
 VIDEO_PLAYER4_OBJECTS := $(VIDEO_PLAYER4_SOURCES:%.c=%.o)
 

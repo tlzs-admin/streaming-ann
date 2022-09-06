@@ -50,6 +50,7 @@ struct video_stream *video_stream_init(struct video_stream *stream, json_object 
 void video_stream_cleanup(struct video_stream *stream);
 
 struct ai_engine * find_ai_engine_by_id(struct app_context *app, int id);
+void input_frame_clear_all(input_frame_t *frame);
 
 #ifdef __cplusplus
 }
