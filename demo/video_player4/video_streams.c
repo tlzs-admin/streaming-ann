@@ -39,6 +39,10 @@ static long video_stream_get_frame(struct video_stream *stream, long prev_frame,
 	if(stream->frame_number > prev_frame) {
 
 		input_frame_t * current = stream->frame_buffer[0];
+		if(NULL == current) {
+			pthread_rwlock_unlock(&stream->rwlock);
+			return -1;
+		}
 		
 		input_frame_set_bgra(frame, current->bgra, NULL, 0);
 		json_object *jresults = current->meta_data;
@@ -78,6 +82,7 @@ static void * video_stream_thread(void *user_data)
 			continue;
 		}
 		
+		int sleep_flags = 1;
 		struct video_source2 *video = stream->video;
 		input_frame_t *frame = stream->frame_buffer[1];
 		if(NULL == frame) {
@@ -96,26 +101,36 @@ static void * video_stream_thread(void *user_data)
 			continue;
 		}
 		stream->frame_number = frame_number;
-		debug_printf("cur_frame: %ld\n", frame_number);
-		if(stream->ai_enabled) {
-			json_object *jresults = json_object_new_object();
-			for(int i = 0; i < stream->num_ai_engines; ++i) {
-				struct ai_context *ai = &stream->ai_engines[i];
-				if(!ai->enabled) continue;
+	//	debug_printf("cur_frame: %ld\n", frame_number);
+		if(stream->ai_enabled && stream->num_ai_engines > 0) {
+			printf("num_ai_engines: %d\n", stream->num_ai_engines);
+			
+			// todo: add multiple result support
+			json_object *jresult = NULL;
+			struct ai_context *ai = &stream->ai_engines[0];
+			if(ai->enabled) {
 				
-				char id[100] = "";
-				snprintf(id, sizeof(id), "id_%d", (ai->id>0)?ai->id:(i+1)); 
-				json_object *jresult = NULL;
 				rc = ai->engine->predict(ai->engine, frame, &jresult);
-				if(0 == rc && jresult) {
-					json_object_object_add(jresults, id, jresult);
+				if(jresult) {
+					frame->meta_data = jresult;	
+					sleep_flags = 0;
 				}
-			}	
-			swap_frame_buffer(stream);
-		}else {
-			swap_frame_buffer(stream);
-			nanosleep(&interval, NULL);
+				
+				//~ json_object *jresults = json_object_new_array();
+				//~ for(int i = 0; i < stream->num_ai_engines; ++i) {
+					//~ struct ai_context *ai = &stream->ai_engines[i];
+					//~ if(!ai->enabled) continue;
+					
+					//~ char id[100] = "";
+					//~ snprintf(id, sizeof(id), "id_%d", (ai->id>0)?ai->id:(i+1)); 
+					//~ json_object *jresult = NULL;
+					//~ rc = ai->engine->predict(ai->engine, frame, &jresult);
+					//~ json_object_array_add(jresults, jresult?jresult:json_object_new_null());
+				//~ }
+			}
 		}
+		swap_frame_buffer(stream);
+		if(sleep_flags) nanosleep(&interval, NULL);
 		
 	}
 	
@@ -180,6 +195,7 @@ static int video_stream_load_config(struct video_stream *stream, json_object *js
 	stream->video = video;
 	stream->image_width = width;
 	stream->image_height = height;
+	stream->ai_enabled = json_get_value(jinput, int, ai_enabled);
 	
 	int num_ai_engines = 0;
 	ok = json_object_object_get_ex(jstream, "ai-engines", &jai_engines);

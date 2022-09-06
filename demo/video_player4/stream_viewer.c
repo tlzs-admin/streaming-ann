@@ -72,6 +72,7 @@ static void on_uri_changed(GtkWidget * widget, struct stream_viewer *viewer)
 		
 		stream->pause(stream);
 		video->stop(video);
+		stream->frame_number = 0;
 		
 		// clear counters
 		struct classes_counter_context * counters = viewer->counter_ctx;
@@ -79,7 +80,6 @@ static void on_uri_changed(GtkWidget * widget, struct stream_viewer *viewer)
 		
 		int rc = video->set_uri2(video, uri, stream->image_width, stream->image_height);
 		rc = video->play(video);
-		
 		rc = stream->run(stream);
 		
 		if(0 == rc) {
@@ -113,6 +113,7 @@ static void on_menu_open_clicked(GtkMenuItem *item, struct stream_viewer *viewer
 			_("Open"), GTK_RESPONSE_OK, 
 			_("Cancel"), GTK_RESPONSE_CANCEL,
 			NULL);
+		gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dlg), shell->app->work_dir);
 		apply_video_files_filter(GTK_FILE_CHOOSER(dlg));
 	}
 	
@@ -181,15 +182,136 @@ GtkWidget * create_options_menu(struct stream_viewer * viewer)
 	return menu;
 }
 
+static void on_play_pause_toggled(GtkWidget * button, struct stream_viewer * viewer)
+{
+	assert(viewer && viewer->shell);
+	if(NULL == viewer->stream) return;
+	struct video_stream *stream = viewer->stream;
+	if(NULL == stream->video) return;
+	struct video_source2 *video = stream->video;
+	
+	if(NULL == button) button = viewer->play_pause_button;
+	
+	int rc = 0;
+	int is_paused = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(button));
+	
+	GtkWidget * icon = gtk_image_new_from_icon_name(is_paused?"media-playback-start":"media-playback-pause", GTK_ICON_SIZE_BUTTON);
+	gtk_button_set_image(GTK_BUTTON(button), icon);
+	if(is_paused) {
+		rc = video->pause(video);
+		stream->pause(stream);
+		if(0 == rc) {
+			gtk_header_bar_set_subtitle(GTK_HEADER_BAR(viewer->shell->priv->header_bar), "paused");
+		}
+	}else {
+		rc = video->play(video);
+		stream->run(stream);
+		if(0 == rc) {
+			gtk_header_bar_set_subtitle(GTK_HEADER_BAR(viewer->shell->priv->header_bar), video->uri);
+		}
+	}
+}
 
+static void on_slider_value_changed(GtkRange *slider, struct stream_viewer *viewer)
+{
+	assert(viewer);
+	struct video_stream *stream = viewer->stream;
+	if(NULL == stream || NULL == stream->video) return;
+	struct video_source2 *video = stream->video;
+	
+	double value = gtk_range_get_value(slider);
+	video->seek(video, value);
+	
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(viewer->play_pause_button), FALSE);
+	return;
+}
+
+
+static gchar * format_timer_slider_value(GtkScale * scale, gdouble value, struct stream_viewer *viewer)
+{
+	char buf[100] = "";
+	
+	int64_t value_i64 = (int64_t)value;
+	int hours = value_i64 / 3600;
+	int minutes = (value_i64 % 3600) / 60;
+	int seconds = (value_i64 % 60);
+	
+	snprintf(buf, sizeof(buf), "%.2d:%.2d:%.2d", hours, minutes, seconds);
+	return strdup(buf);
+}
+
+gboolean stream_viewer_update_ui(struct stream_viewer * viewer)
+{
+	assert(viewer && viewer->shell && viewer->stream);
+	struct video_stream *stream = viewer->stream;
+	struct video_source2 *video = stream->video;
+	if(NULL == video) return FALSE;
+	
+	if(video->state < GST_STATE_PAUSED) return TRUE;
+	
+	//if(!GST_CLOCK_TIME_IS_VALID(video->duration)) 
+	{
+		if(gst_element_query_duration(video->pipeline, GST_FORMAT_TIME, &video->duration) && video->duration > 0) {
+			gtk_range_set_range(GTK_RANGE(viewer->slider), 0, (gdouble)video->duration / GST_SECOND);
+		}else {
+		//	fprintf(stderr, "query duration failed\n");
+		}
+	}
+	
+	gint64 current = -1;
+	if(gst_element_query_position(video->pipeline, GST_FORMAT_TIME, &current)) {
+		g_signal_handler_block(viewer->slider, viewer->slider_update_handler);
+		gtk_range_set_value(GTK_RANGE(viewer->slider), 
+			(gdouble)current / GST_SECOND);
+		g_signal_handler_unblock(viewer->slider, viewer->slider_update_handler);
+	}
+	
+//	printf("duration: %ld, current: %ld\n", video->duration, current);
+	return TRUE;
+}
+
+static int on_video_status_changed(struct video_source2 * video, GstState old_state, GstState new_state, void * user_data)
+{
+	struct stream_viewer *viewer = user_data;
+	assert(viewer && viewer->stream);
+	assert(viewer->stream->video == video);
+	
+	stream_viewer_update_ui(user_data);
+	gboolean pause_mode = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(viewer->play_pause_button));
+	if(pause_mode && new_state == GST_STATE_PLAYING) {
+		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(viewer->play_pause_button), FALSE);
+	}
+
+	return 0;
+}
 
 struct stream_viewer * stream_viewer_init(struct stream_viewer *viewer, int index, int image_width, int image_height, struct shell_context *shell)
 {
+	assert(shell && shell->app);
 	if(NULL == viewer) viewer = calloc(1, sizeof(*viewer));
 	assert(viewer);
 	
 	viewer->shell = shell;
 	viewer->index = index;
+	
+	struct video_stream *stream = viewer->stream;
+	if(NULL == stream) {
+		struct video_stream *streams = NULL;
+		ssize_t num_streams = app_get_streams(shell->app, &streams);
+		if(num_streams > 0 && viewer->index >= 0 && viewer->index < num_streams) {
+			stream = &streams[viewer->index];
+			viewer->stream = stream;
+		}
+	}
+	assert(stream);
+	
+	struct video_source2 *video = stream->video;
+	const char *uri = NULL;
+	if(video){
+		video->user_data = viewer;
+		video->on_state_changed = on_video_status_changed;
+		uri = video->uri;
+	}
 	
 	GtkWidget * grid = gtk_grid_new();
 	GtkWidget * hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
@@ -198,16 +320,21 @@ struct stream_viewer * stream_viewer_init(struct stream_viewer *viewer, int inde
 	
 	GtkWidget * file_chooser_btn = gtk_file_chooser_button_new(_("Open ..."), GTK_FILE_CHOOSER_ACTION_OPEN);
 	apply_video_files_filter(GTK_FILE_CHOOSER(file_chooser_btn));
+	gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(file_chooser_btn), shell->app->work_dir);
 	
 	g_signal_connect(file_chooser_btn, "file-set", G_CALLBACK(on_file_selection_changed), viewer);
 	
 	GtkWidget *uri_entry = gtk_search_entry_new();
-	GtkWidget *clear_btn = gtk_button_new_from_icon_name("edit-delete", GTK_ICON_SIZE_BUTTON);
-	gtk_box_pack_start(GTK_BOX(hbox), uri_entry, TRUE, TRUE, 2);
-	gtk_box_pack_start(GTK_BOX(hbox), clear_btn, FALSE, TRUE, 2);
-	gtk_box_pack_start(GTK_BOX(hbox), file_chooser_btn, FALSE, TRUE, 2);
+	GtkWidget *refresh_btn = gtk_button_new_from_icon_name("view-refresh", GTK_ICON_SIZE_BUTTON);
 	
-	struct da_panel *panel = da_panel_init(viewer->panel, image_width, image_height, shell);
+	gtk_entry_set_text(GTK_ENTRY(uri_entry), uri);
+	gtk_box_pack_start(GTK_BOX(hbox), uri_entry, TRUE, TRUE, 2);
+	gtk_box_pack_start(GTK_BOX(hbox), refresh_btn, FALSE, TRUE, 2);
+	gtk_box_pack_start(GTK_BOX(hbox), file_chooser_btn, FALSE, TRUE, 2);
+	g_signal_connect(refresh_btn, "clicked", G_CALLBACK(on_uri_changed), viewer);
+	g_signal_connect(uri_entry, "activate", G_CALLBACK(on_uri_changed), viewer);
+	
+	struct da_panel *panel = da_panel_init(viewer->panel, image_width, image_height, viewer);
 	assert(panel);
 	gtk_widget_set_size_request(panel->frame, 320, 180);
 	gtk_grid_attach(GTK_GRID(grid), panel->frame, 0, 1, 1, 1);
@@ -220,11 +347,13 @@ struct stream_viewer * stream_viewer_init(struct stream_viewer *viewer, int inde
 	gtk_widget_set_hexpand(slider, TRUE);
 	gtk_scale_set_draw_value(GTK_SCALE(slider), TRUE);
 	gtk_scale_set_value_pos(GTK_SCALE(slider), GTK_POS_RIGHT);
-	//~ viewer->slider_update_handler = g_signal_connect(slider, "value-changed", G_CALLBACK(on_slider_value_changed), viewer);
+	viewer->slider_update_handler = g_signal_connect(slider, "value-changed", G_CALLBACK(on_slider_value_changed), viewer);
+	g_signal_connect(slider, "format-value", G_CALLBACK(format_timer_slider_value), viewer);
+	
 	GtkWidget * play_pause_button = gtk_toggle_button_new();
 	GtkWidget * pause_icon = gtk_image_new_from_icon_name("media-playback-pause", GTK_ICON_SIZE_BUTTON);
 	gtk_button_set_image(GTK_BUTTON(play_pause_button), pause_icon);
-	//~ g_signal_connect(play_pause_button, "toggled", G_CALLBACK(on_play_pause_toggled), viewer);
+	g_signal_connect(play_pause_button, "toggled", G_CALLBACK(on_play_pause_toggled), viewer);
 	
 	gtk_box_pack_start(GTK_BOX(hbox), play_pause_button, FALSE, TRUE, 1);
 	gtk_box_pack_start(GTK_BOX(hbox), slider, TRUE, TRUE, 1);

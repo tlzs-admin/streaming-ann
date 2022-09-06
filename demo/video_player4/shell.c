@@ -32,24 +32,38 @@
 #include "app.h"
 #include "shell.h"
 #include "shell_private.c.impl"
-
+#include "utils.h"
 #include "video_streams.h"
+ssize_t app_get_streams(struct app_context *app, struct video_stream **p_streams);
 
 static int shell_reload_config(struct shell_context * shell, json_object * jconfig);
 static int shell_init(struct shell_context * shell);
 static int shell_run(struct shell_context * shell);
 static int shell_stop(struct shell_context * shell);
 
-struct shell_context * shell_context_init(struct shell_context * shell, void * app)
+struct shell_context * shell_context_init(struct shell_context * shell, void * _app)
 {
+	assert(_app);
+	
 	if(NULL == shell) shell = calloc(1, sizeof(*shell));
 	assert(shell);
+	
+	struct app_context *app = _app;
 	
 	shell->app = app;
 	shell->reload_config = shell_reload_config;
 	shell->init = shell_init;
 	shell->run = shell_run;
 	shell->stop = shell_stop;
+	
+	
+	struct shell_private *priv = shell->priv;
+	if(NULL == priv) priv = shell_private_new(shell);
+	assert(priv);
+	shell->priv = priv;
+	
+	shell_reload_config(shell, app->jconfig);
+
 	return shell;
 }
 void shell_context_cleanup(struct shell_context * shell)
@@ -59,14 +73,22 @@ void shell_context_cleanup(struct shell_context * shell)
 
 static int shell_reload_config(struct shell_context * shell, json_object * jconfig)
 {
+	json_bool ok = FALSE;
+	json_object *jui = NULL;
+	ok = json_object_object_get_ex(jconfig, "ui", &jui);
+	if(!ok || NULL == jui) return -1;
+		
+	struct shell_private *priv = shell->priv;
+	priv->fps = json_get_value(jui, double, fps);
+	ok = json_object_object_get_ex(jui, "colors", &priv->jcolors);
+	if(!ok) return -1;
+	
 	return 0;
 }
 
 static int shell_init(struct shell_context * shell)
 {
-	struct shell_private *priv = shell->priv;
-	if(NULL == priv) priv = shell->priv = shell_private_new(shell);
-	assert(priv);
+	
 	
 	init_windows(shell);
 	return 0;
@@ -93,9 +115,128 @@ static int shell_stop(struct shell_context * shell)
 }
 
 
-ssize_t app_get_streams(struct app_context *app, struct video_stream **p_streams);
 
-static void draw_frame(da_panel_t *panel, const input_frame_t *frame, json_object *jresult)
+
+
+struct darknet_detection
+{
+	long class_id;
+	const char * class_name;
+	double confidence;
+	double x;
+	double y;
+	double cx;
+	double cy;
+};
+static ssize_t darknet_detection_parse_json(json_object * jdetections, struct darknet_detection **p_detections)
+{
+	debug_printf("%s()...", __FUNCTION__);
+	assert(jdetections && p_detections);
+	
+	ssize_t count = json_object_array_length(jdetections);
+	if(count <= 0) return count;
+	
+	struct darknet_detection * dets = calloc(count, sizeof(*dets));
+	assert(dets);
+	
+	for(ssize_t i = 0; i < count; ++i) {
+		json_object * jdet = json_object_array_get_idx(jdetections, i);
+		
+		dets[i].class_id = json_get_value_default(jdet, int, class_index, -1);
+		dets[i].class_name = json_get_value(jdet, string, class);
+		dets[i].confidence = json_get_value(jdet, double, confidence);
+		dets[i].x = json_get_value(jdet, double, left);
+		dets[i].y = json_get_value(jdet, double, top);
+		dets[i].cx = json_get_value(jdet, double, width);
+		dets[i].cy = json_get_value(jdet, double, height);
+		
+		assert(dets[i].class_id >= 0 || dets[i].class_name != NULL);
+	}
+	*p_detections = dets;
+	return count;
+}
+
+#define AUTO_FREE_PTR __attribute__((cleanup(auto_free_ptr)))
+static void auto_free_ptr(void * ptr)
+{
+	void * p = *(void **)ptr;
+	if(p) { free(p); *(void **)ptr = NULL; }
+}
+
+static void draw_ai_result(cairo_surface_t *surface, json_object *jresult, json_object *jcolors)
+{
+	assert(surface);
+	
+	printf("jresult: %p\n", jresult);
+	if(NULL == jresult) return;
+	
+	double width = cairo_image_surface_get_width(surface);
+	double height = cairo_image_surface_get_height(surface);
+	if(width < 1 || height < 1) return;
+	
+	const double font_size = (double)height / 32; 
+	const double line_width = (double)height / 240;
+	const char * font_family = "Mono"; 
+	
+	json_object * jdetections = NULL;
+	json_bool ok = json_object_object_get_ex(jresult, "detections", &jdetections);
+	if(!ok || NULL == jdetections) return;
+	
+	AUTO_FREE_PTR struct darknet_detection * dets = NULL;
+	ssize_t num_detections = darknet_detection_parse_json(jdetections, &dets);
+	
+	if(num_detections <= 0) return;
+	
+	cairo_t *cr = cairo_create(surface);
+	cairo_select_font_face(cr, font_family, CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+	cairo_set_font_size(cr, font_size);
+	cairo_set_line_width(cr, line_width);
+	
+	for(ssize_t i = 0; i < num_detections; ++i) {
+		gboolean color_parsed = FALSE;
+		GdkRGBA fg_color;
+		const char *class_name = dets[i].class_name;
+		const char *color_name = NULL;
+		if(NULL == class_name) continue;
+		
+		if(jcolors) {
+			json_object *jcolor = NULL;
+			ok = json_object_object_get_ex(jcolors, class_name, &jcolor);
+			if(jcolor) color_name = json_object_get_string(jcolor);
+			if(color_name) color_parsed = gdk_rgba_parse(&fg_color, color_name);
+		}
+		if(!color_parsed) gdk_rgba_parse(&fg_color, "green"); // default color
+		
+		double x = dets[i].x * width;
+		double y = dets[i].y * height;
+		double cx = dets[i].cx * width;
+		double cy = dets[i].cy * height;
+		
+		// draw text background
+		cairo_text_extents_t extents;
+		cairo_text_extents(cr, class_name, &extents);
+		cairo_set_source_rgba(cr, 0.6, 0.6, 0.6, 0.8);
+		cairo_rectangle(cr, x - 2, y - 2, 
+			extents.width + 4, 
+			extents.height + extents.y_advance + 4 - extents.y_bearing);
+		cairo_fill(cr); 
+		
+		// draw bounding box
+		cairo_set_source_rgb(cr, fg_color.red, fg_color.green, fg_color.blue);
+		cairo_rectangle(cr, x, y, cx, cy);
+		cairo_stroke(cr);
+		
+		// draw label
+		cairo_move_to(cr, x, y + font_size);
+		cairo_show_text(cr, class_name);
+		cairo_stroke(cr);
+		
+	}
+	cairo_destroy(cr);
+	return;
+}
+
+static void draw_frame(da_panel_t *panel, const input_frame_t *frame, json_object *jresult, json_object *jcolors)
 {
 	if(NULL == frame || NULL == frame->data || frame->width < 1 || frame->height < 1) return;
 	
@@ -113,8 +254,8 @@ static void draw_frame(da_panel_t *panel, const input_frame_t *frame, json_objec
 	assert(image_data);
 	memcpy(image_data, frame->data, frame->width * frame->height * 4);
 	cairo_surface_mark_dirty(surface);
-
-
+	
+	draw_ai_result(surface, jresult, jcolors);
 	gtk_widget_queue_draw(panel->da);
 	return;
 }
@@ -147,7 +288,7 @@ static gboolean on_timeout(struct shell_context *shell)
 		if(frame_number <= 0) continue;
 		
 		da_panel_t *panel = priv->views[i].panel;
-		draw_frame(panel, frame, NULL);
+		draw_frame(panel, frame, (json_object *)frame->meta_data, priv->jcolors);
 		
 		input_frame_clear_all(frame);
 	}

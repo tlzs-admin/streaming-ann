@@ -34,6 +34,7 @@
 #include <gtk/gtk.h>
 #include <getopt.h>
 
+#include <libgen.h>
 #include <pthread.h>
 
 #include "utils.h"
@@ -93,14 +94,15 @@ struct app_context *app_context_init(struct app_context *app, void * user_data)
 	ssize_t cb = readlink("/proc/self/exe", app->work_dir, sizeof(app->work_dir));
 	assert(cb > 0);
 	char *app_name = basename(app->work_dir);
+	char *work_dir = dirname(app->work_dir);
 	if(app_name) strncpy(app->name, app_name, sizeof(app->name));
 	
 	strncpy(app->title, app->name, sizeof(app->title));
 	
-	chdir(app->work_dir);
+	chdir(work_dir);
 	printf("== work_dir: %s\n"
 		   "== app_name: %s\n", 
-		app->work_dir, app->name);
+		work_dir, app->name);
 	
 	return app;
 }
