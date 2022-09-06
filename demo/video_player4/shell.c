@@ -99,7 +99,9 @@ static int shell_run(struct shell_context * shell)
 {
 	struct shell_private *priv = shell->priv;
 	
-	priv->timer_id = g_timeout_add(100, (GSourceFunc)on_timeout, shell);
+	if(priv->fps < 1 || priv->fps > 30) priv->fps = 10;
+	
+	priv->timer_id = g_timeout_add(1000 / priv->fps, (GSourceFunc)on_timeout, shell);
 	gtk_main();
 	
 	if(priv->timer_id) {
@@ -163,11 +165,39 @@ static void auto_free_ptr(void * ptr)
 	if(p) { free(p); *(void **)ptr = NULL; }
 }
 
-static void draw_ai_result(cairo_surface_t *surface, json_object *jresult, json_object *jcolors)
+
+static void draw_counters(cairo_t *cr, const int font_size, struct stream_viewer *viewer)
+{
+	struct classes_counter_context * counters = viewer->counter_ctx;
+	int num_classes = counters->num_classes;
+	if(num_classes <= 0) return;
+	char sz_text[200] = "";
+	int x = 10, y = 10;
+	
+	for(int i = 0; i < num_classes; ++i) {
+		snprintf(sz_text, sizeof(sz_text), "%.10s: %d", counters->classes[i].name,  (int)counters->classes[i].count);
+		// draw text background
+		cairo_text_extents_t extents;
+		cairo_text_extents(cr, sz_text, &extents);
+		cairo_set_source_rgba(cr, 0.7, 0.7, 0.7, 0.5);
+		cairo_rectangle(cr, x - 2, y - 2, 
+			extents.width + extents.x_bearing + 4, 
+			extents.height + extents.y_advance + 4 - extents.y_bearing);
+		cairo_fill(cr); 
+		
+		cairo_set_source_rgba(cr, 0, 0, 1, 1);
+		// draw label
+		cairo_move_to(cr, x, y + font_size);
+		cairo_show_text(cr, sz_text);
+		cairo_stroke(cr);
+		
+		y += font_size + 5;
+	}
+}
+
+static void draw_ai_result(cairo_surface_t *surface, json_object *jresult, json_object *jcolors, struct stream_viewer *viewer)
 {
 	assert(surface);
-	
-	printf("jresult: %p\n", jresult);
 	if(NULL == jresult) return;
 	
 	double width = cairo_image_surface_get_width(surface);
@@ -192,13 +222,22 @@ static void draw_ai_result(cairo_surface_t *surface, json_object *jresult, json_
 	cairo_set_font_size(cr, font_size);
 	cairo_set_line_width(cr, line_width);
 	
+	struct classes_counter_context * counters = viewer->counter_ctx;
+	counters->reset(counters);
+	
 	for(ssize_t i = 0; i < num_detections; ++i) {
 		gboolean color_parsed = FALSE;
 		GdkRGBA fg_color;
+		if(dets[i].class_id < 0) continue;
+		
 		const char *class_name = dets[i].class_name;
 		const char *color_name = NULL;
 		if(NULL == class_name) continue;
 		
+		struct class_counter *counter = counters->add_by_id(counters, dets[i].class_id);
+		if(counter) strncpy(counter->name, class_name, sizeof(counter->name));
+		
+
 		if(jcolors) {
 			json_object *jcolor = NULL;
 			ok = json_object_object_get_ex(jcolors, class_name, &jcolor);
@@ -230,13 +269,14 @@ static void draw_ai_result(cairo_surface_t *surface, json_object *jresult, json_
 		cairo_move_to(cr, x, y + font_size);
 		cairo_show_text(cr, class_name);
 		cairo_stroke(cr);
-		
 	}
+	
+	if(viewer->show_counters) draw_counters(cr, font_size, viewer);
 	cairo_destroy(cr);
 	return;
 }
 
-static void draw_frame(da_panel_t *panel, const input_frame_t *frame, json_object *jresult, json_object *jcolors)
+static void draw_frame(da_panel_t *panel, const input_frame_t *frame, json_object *jresult, json_object *jcolors, struct stream_viewer *viewer)
 {
 	if(NULL == frame || NULL == frame->data || frame->width < 1 || frame->height < 1) return;
 	
@@ -255,7 +295,7 @@ static void draw_frame(da_panel_t *panel, const input_frame_t *frame, json_objec
 	memcpy(image_data, frame->data, frame->width * frame->height * 4);
 	cairo_surface_mark_dirty(surface);
 	
-	draw_ai_result(surface, jresult, jcolors);
+	draw_ai_result(surface, jresult, jcolors, viewer);
 	gtk_widget_queue_draw(panel->da);
 	return;
 }
@@ -288,7 +328,7 @@ static gboolean on_timeout(struct shell_context *shell)
 		if(frame_number <= 0) continue;
 		
 		da_panel_t *panel = priv->views[i].panel;
-		draw_frame(panel, frame, (json_object *)frame->meta_data, priv->jcolors);
+		draw_frame(panel, frame, (json_object *)frame->meta_data, priv->jcolors, &priv->views[i]);
 		
 		input_frame_clear_all(frame);
 	}

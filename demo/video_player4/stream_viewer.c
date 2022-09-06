@@ -29,6 +29,7 @@
 #include <string.h>
 #include <assert.h>
 
+#include "utils.h"
 #include "app.h"
 #include "stream_viewer.h"
 #include "video_streams.h"
@@ -128,10 +129,40 @@ static void on_menu_open_clicked(GtkMenuItem *item, struct stream_viewer *viewer
 	return;
 }
 
+static gboolean on_da_button_press(struct da_panel * panel, guint button, double x, double y, guint state, GdkEventButton * event)
+{
+	debug_printf("button: %u, pos:(%.2f,%.2f), state=%.8x\n", button, x, y, state);
+	if(button == 1) gtk_widget_grab_focus(panel->da);
+	
+	
+	struct stream_viewer * viewer = panel->shell;
+	assert(viewer);
+	if(button == 3) { // right button
+		//~ gtk_menu_popup_at_widget(GTK_MENU(shell->context_menu), 
+			//~ panel->da, 
+			//~ GDK_GRAVITY_STATIC,
+			//~ GDK_GRAVITY_NORTH_WEST, 
+			//~ (GdkEvent *)event);
+		gtk_menu_popup_at_pointer(GTK_MENU(viewer->context_menu), (GdkEvent *)event);
+	}
+	return FALSE;
+}
+
+static void on_check_menu_toggled_int_value(GtkCheckMenuItem *item, int *p_value)
+{
+	if(p_value) *p_value =  gtk_check_menu_item_get_active(item);
+}
+static void on_show_hide_toolbars_toggled(GtkCheckMenuItem *item, struct stream_viewer *viewer)
+{
+	gboolean active = gtk_check_menu_item_get_active(item);
+	gtk_widget_set_visible(viewer->hbox[0], active);
+	gtk_widget_set_visible(viewer->hbox[1], active);
+}
 
 GtkWidget * create_options_menu(struct stream_viewer * viewer)
 {
 	struct shell_context *shell = viewer->shell;
+	struct video_stream * stream = viewer->stream;
 	GtkWidget * menu = gtk_menu_new();
 	
 	GtkWidget * open = gtk_menu_item_new_with_label(_("Open ..."));
@@ -143,23 +174,30 @@ GtkWidget * create_options_menu(struct stream_viewer * viewer)
 	
 	//~ GtkWidget * options = gtk_menu_item_new_with_label("options");
 	//~ gtk_menu_shell_append(GTK_MENU_SHELL(menu), options);
-	
 	//~ GtkWidget * sub_menu = gtk_menu_new();
 	//~ gtk_menu_item_set_submenu(GTK_MENU_ITEM(options), sub_menu);
-	//~ GtkWidget * show_counters_menu = gtk_check_menu_item_new_with_label(_("Show Counters List"));
-	//~ shell->show_counters_menu = show_counters_menu;
-	//~ gtk_menu_shell_append(GTK_MENU_SHELL(sub_menu), show_counters_menu);
-	//~ g_signal_connect(show_counters_menu, "toggled", G_CALLBACK(on_show_hide_counters_list), viewer);
-	//~ gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(show_counters_menu), TRUE);
 	
-	//~ GtkWidget * show_slider_menu = gtk_check_menu_item_new_with_label(_("Show Video Control Bar"));
-	//~ shell->show_slider_menu = show_slider_menu;
-	//~ gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(show_slider_menu), TRUE);
-	//~ gtk_menu_shell_append(GTK_MENU_SHELL(sub_menu), show_slider_menu);
-	//~ g_signal_connect(show_slider_menu, "toggled", G_CALLBACK(on_show_hide_slider_bar), viewer);
+	GtkWidget * show_counters_menu = gtk_check_menu_item_new_with_label(_("Show Counters List"));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), show_counters_menu);
+	g_signal_connect(show_counters_menu, "toggled", G_CALLBACK(on_check_menu_toggled_int_value), &viewer->show_counters);
 	
+	// add separator
+	separator = gtk_separator_menu_item_new();
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), separator);
+	
+	GtkWidget * show_toolbars_menu = gtk_check_menu_item_new_with_label(_("Show toolbars"));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), show_toolbars_menu);
+	gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(show_toolbars_menu), TRUE);
+	g_signal_connect(show_toolbars_menu, "toggled", G_CALLBACK(on_show_hide_toolbars_toggled), viewer);
+	
+	
+	// add separator
+	separator = gtk_separator_menu_item_new();
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), separator);
 	
 	GtkWidget * enable_ai = gtk_check_menu_item_new_with_label(_("Enable AI engine"));
+	if(stream) gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(enable_ai), stream->ai_enabled);
+	g_signal_connect(enable_ai, "toggled", G_CALLBACK(on_check_menu_toggled_int_value), &stream->ai_enabled);
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), enable_ai);
 
 	separator = gtk_separator_menu_item_new();
@@ -294,6 +332,8 @@ struct stream_viewer * stream_viewer_init(struct stream_viewer *viewer, int inde
 	viewer->shell = shell;
 	viewer->index = index;
 	
+	classes_counter_context_init(viewer->counter_ctx, viewer);
+	
 	struct video_stream *stream = viewer->stream;
 	if(NULL == stream) {
 		struct video_stream *streams = NULL;
@@ -336,6 +376,7 @@ struct stream_viewer * stream_viewer_init(struct stream_viewer *viewer, int inde
 	
 	struct da_panel *panel = da_panel_init(viewer->panel, image_width, image_height, viewer);
 	assert(panel);
+	panel->on_button_press = on_da_button_press;
 	gtk_widget_set_size_request(panel->frame, 320, 180);
 	gtk_grid_attach(GTK_GRID(grid), panel->frame, 0, 1, 1, 1);
 	
@@ -373,7 +414,7 @@ struct stream_viewer * stream_viewer_init(struct stream_viewer *viewer, int inde
 	viewer->grid = grid;
 	viewer->uri_entry = uri_entry;
 	
-	
+	viewer->context_menu = create_options_menu(viewer);
 	return viewer;
 }
 void stream_viewer_cleanup(struct stream_viewer *viewer)
