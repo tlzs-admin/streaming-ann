@@ -1085,6 +1085,7 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 			
 			for(ssize_t i = 0; i < num_detections; ++i)
 			{
+				if(dets[i].class_id != 0) continue;	// not person
 				gboolean color_parsed = FALSE;
 				GdkRGBA fg_color;
 				
@@ -1116,24 +1117,36 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 				double cx = dets[i].cx * width;
 				double cy = dets[i].cy * height;
 				
-				// draw text background
-				cairo_text_extents_t extents;
-				cairo_text_extents(cr, class_name, &extents);
-				cairo_set_source_rgba(cr, 0.6, 0.6, 0.6, 0.8);
-				cairo_rectangle(cr, x - 2, y - 2, 
-					extents.width + 4, 
-					extents.height + extents.y_advance + 4 - extents.y_bearing);
-				cairo_fill(cr); 
 				
-				// draw bounding box
-				cairo_set_source_rgb(cr, fg_color.red, fg_color.green, fg_color.blue);
-				cairo_rectangle(cr, x, y, cx, cy);
-				cairo_stroke(cr);
+				double radius = (cx * 0.7) / 2;
+				double center_x = x + cx / 2;
+				double center_y = y + radius;
+				if(center_y > (y + cy - radius) ) center_y = y + cy - radius;
 				
-				// draw label
-				cairo_move_to(cr, x, y + font_size);
-				cairo_show_text(cr, class_name);
-				cairo_stroke(cr);
+				// draw masks
+				cairo_set_source_rgba(cr, 0.1, 0.2, 0.3, 1.0);
+				cairo_arc(cr, center_x, center_y, radius, 0.0, 3.1415926 * 2);
+				cairo_fill(cr);
+				
+				
+				//~ // draw text background
+				//~ cairo_text_extents_t extents;
+				//~ cairo_text_extents(cr, class_name, &extents);
+				//~ cairo_set_source_rgba(cr, 0.6, 0.6, 0.6, 0.8);
+				//~ cairo_rectangle(cr, x - 2, y - 2, 
+					//~ extents.width + 4, 
+					//~ extents.height + extents.y_advance + 4 - extents.y_bearing);
+				//~ cairo_fill(cr); 
+				
+				//~ // draw bounding box
+				//~ cairo_set_source_rgb(cr, fg_color.red, fg_color.green, fg_color.blue);
+				//~ cairo_rectangle(cr, x, y, cx, cy);
+				//~ cairo_stroke(cr);
+				
+				//~ // draw label
+				//~ cairo_move_to(cr, x, y + font_size);
+				//~ cairo_show_text(cr, class_name);
+				//~ cairo_stroke(cr);
 			}
 			
 			GtkListStore * store = gtk_list_store_new(LISTVIEW_COLUMNS_count, G_TYPE_INT, G_TYPE_STRING, G_TYPE_INT);
@@ -1163,11 +1176,13 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 		
 		AUTO_FREE_PTR struct face_detection *faces = NULL;
 		AUTO_FREE_PTR struct face_landmark * landmarks = NULL;
-		ssize_t num_faces = face_ctx->detect(face_ctx, mat, 0.5, &faces, &landmarks, NULL);
+		ssize_t num_faces = face_ctx->detect(face_ctx, mat, 0.2, &faces, &landmarks, NULL);
 		cvmat_free(mat);
 		
 		cairo_t * cr = cairo_create(surface);
-		cairo_set_source_rgba(cr, 0.1, 0.2, 0.3, 0.9);
+		double width = frame->width;
+		double height = frame->height;
+		
 		
 		for(ssize_t i = 0; i < num_faces; ++i) {
 			debug_printf("face[%d]: {%f,%f,%f,%f}\n", (int)i, faces[i].x, faces[i].y, faces[i].cx, faces[i].cy);
@@ -1175,8 +1190,54 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 			double center_y = faces[i].y + faces[i].cy / 2;
 			double radius = ((faces[i].cx + faces[i].cy) / 2) / 2;
 			
-			cairo_arc(cr, center_x * frame->width, center_y * frame->height, radius * frame->width, 0.0, 3.1415926 * 2);
+			// draw masks
+			cairo_set_source_rgba(cr, 0.1, 0.2, 0.3, 1.0);
+			cairo_arc(cr, center_x * width, center_y * height, radius * width, 0.0, 3.1415926 * 2);
 			cairo_fill(cr);
+			
+			/******************************
+			 * Draw LandMarks:
+			 *   eyebrows.left = [17-21]
+			 *   eyes.left = [36-41];
+			 *   eyebrows.right = [22-26]
+			 *   eyes.right = [42-47]
+			 *****************************/
+			/* 
+			#define LEFT_EYE_BEGIN_POS   (36)
+			#define LEFT_EYE_END_POS     (41)
+			#define RIGHT_EYE_BEGIN_POS  (42)
+			#define RIGHT_EYE_END_POS    (47)
+			printf("landmarks[%d]: [..., (%f, %f), ..., ...]\n",
+				(int)i, 
+				landmarks[i].points[LEFT_EYE_BEGIN_POS].x, 
+				landmarks[i].points[LEFT_EYE_BEGIN_POS].y);
+				 
+			// draw eyes
+			cairo_set_source_rgba(cr, 1, 1, 0, 0.95);
+			cairo_arc(cr, 
+				landmarks[i].points[LEFT_EYE_BEGIN_POS].x * width, 
+				landmarks[i].points[LEFT_EYE_BEGIN_POS].y * height,
+				width / 320, 
+				0, 3.1415926 * 2);
+			for(int pos = LEFT_EYE_BEGIN_POS + 1; pos <= LEFT_EYE_END_POS; ++pos) {
+				cairo_line_to(cr, 
+					landmarks[i].points[pos].x * width,  
+					landmarks[i].points[pos].y * height);
+			}
+			cairo_close_path(cr);
+			cairo_fill(cr);
+	
+			cairo_move_to(cr, 
+				landmarks[i].points[RIGHT_EYE_BEGIN_POS].x * width, 
+				landmarks[i].points[RIGHT_EYE_BEGIN_POS].y * height);
+			for(int pos = RIGHT_EYE_BEGIN_POS + 1; pos <= RIGHT_EYE_END_POS; ++pos) {
+				cairo_line_to(cr, 
+					landmarks[i].points[pos].x * width, 
+					landmarks[i].points[pos].y * height);
+			}
+			cairo_close_path(cr);
+			cairo_fill(cr); 
+			*/ 
 		}
 		cairo_destroy(cr);
 	}
