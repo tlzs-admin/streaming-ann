@@ -166,7 +166,7 @@ static void auto_free_ptr(void * ptr)
 }
 
 
-static void draw_counters(cairo_t *cr, const int font_size, struct stream_viewer *viewer)
+static void draw_counters(cairo_t *cr, const int font_size, json_object *jcolors, struct stream_viewer *viewer)
 {
 	struct classes_counter_context * counters = viewer->counter_ctx;
 	int num_classes = counters->num_classes;
@@ -175,17 +175,29 @@ static void draw_counters(cairo_t *cr, const int font_size, struct stream_viewer
 	int x = 10, y = 10;
 	
 	for(int i = 0; i < num_classes; ++i) {
-		snprintf(sz_text, sizeof(sz_text), "%.10s: %d", counters->classes[i].name,  (int)counters->classes[i].count);
+		gboolean color_parsed = FALSE;
+		GdkRGBA fg_color;
+		const char *color_name = NULL;
+		if(jcolors) {
+			json_bool ok = FALSE;
+			json_object *jcolor = NULL;
+			ok = json_object_object_get_ex(jcolors, counters->classes[i].name, &jcolor);
+			if(ok && jcolor) color_name = json_object_get_string(jcolor);
+			if(color_name) color_parsed = gdk_rgba_parse(&fg_color, color_name);
+		}
+		if(!color_parsed) gdk_rgba_parse(&fg_color, "green"); // default color
+		snprintf(sz_text, sizeof(sz_text), "%.10s: %d", _(counters->classes[i].name),  (int)counters->classes[i].count);
+		
 		// draw text background
 		cairo_text_extents_t extents;
 		cairo_text_extents(cr, sz_text, &extents);
-		cairo_set_source_rgba(cr, 0.7, 0.7, 0.7, 0.5);
+		cairo_set_source_rgba(cr, 0.7, 0.7, 0.7, 0.9);
 		cairo_rectangle(cr, x - 2, y - 2, 
 			extents.width + extents.x_bearing + 4, 
 			extents.height + extents.y_advance + 4 - extents.y_bearing);
 		cairo_fill(cr); 
 		
-		cairo_set_source_rgba(cr, 0, 0, 1, 1);
+		cairo_set_source_rgba(cr, fg_color.red, fg_color.green, fg_color.blue, 1.0);
 		// draw label
 		cairo_move_to(cr, x, y + font_size);
 		cairo_show_text(cr, sz_text);
@@ -264,7 +276,7 @@ static void draw_ai_result(cairo_surface_t *surface, json_object *jresult, json_
 		
 		// draw text background
 		cairo_text_extents_t extents;
-		cairo_text_extents(cr, class_name, &extents);
+		cairo_text_extents(cr, _(class_name), &extents);
 		cairo_set_source_rgba(cr, 0.6, 0.6, 0.6, 0.8);
 		cairo_rectangle(cr, x - 2, y - 2, 
 			extents.width + 4, 
@@ -278,11 +290,11 @@ static void draw_ai_result(cairo_surface_t *surface, json_object *jresult, json_
 		
 		// draw label
 		cairo_move_to(cr, x, y + font_size);
-		cairo_show_text(cr, class_name);
+		cairo_show_text(cr, _(class_name));
 		cairo_stroke(cr);
 	}
 	
-	if(viewer->show_counters) draw_counters(cr, font_size, viewer);
+	if(viewer->show_counters) draw_counters(cr, font_size, jcolors, viewer);
 	cairo_destroy(cr);
 	return;
 }
