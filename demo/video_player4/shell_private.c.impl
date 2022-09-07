@@ -36,6 +36,8 @@
 #include "shell_private.h"
 #include "stream_viewer.h"
 
+#include "utils.h"
+
 struct shell_private * shell_private_new(struct shell_context * shell)
 {
 	struct shell_private *priv = calloc(1, sizeof(*priv));
@@ -99,10 +101,22 @@ static int init_windows(struct shell_context *shell)
 	const char *title = app->title;
 	json_object *jconfig = app->jconfig;
 	json_object *jstreams = NULL;
+	json_object *jui = NULL;
 	json_bool ok = json_object_object_get_ex(jconfig, "streams", &jstreams);
-	
 	int num_streams = 1;
 	if(ok && jstreams) num_streams = json_object_array_length(jstreams);
+	
+	int grid_cols = -1;
+//	int grid_rows = -1;
+	ok = json_object_object_get_ex(jconfig, "ui", &jui);
+	if(ok && jui) {
+		json_object *jgrid_size = NULL;
+		ok = json_object_object_get_ex(jui, "grid_size", &jgrid_size);
+		if(ok && jgrid_size) {
+			grid_cols = json_get_value(jgrid_size, int, cols);
+		//	grid_rows = json_get_value(jgrid_size, int, rows);
+		}
+	}
 	
 	printf("num_streams: %d\n", num_streams);
 	if(num_streams > 0) {
@@ -130,6 +144,8 @@ static int init_windows(struct shell_context *shell)
 	priv->grid = grid;
 	
 	int num_cols = sqrt(num_streams) + 0.5;
+	if(grid_cols > 0) num_cols = grid_cols;
+	
 	for(int i = 0; i < num_streams; ++i) {
 		struct stream_viewer * view = stream_viewer_init(&priv->views[i], i, image_width, image_height, shell);
 		gtk_grid_attach(GTK_GRID(grid), view->grid, i % num_cols, i / num_cols, 1, 1);

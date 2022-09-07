@@ -220,6 +220,8 @@ GtkWidget * create_options_menu(struct stream_viewer * viewer)
 	g_signal_connect(open, "activate", G_CALLBACK(on_menu_open_clicked), viewer);
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), open);
 	
+	
+	/* settings */
 	GtkWidget * separator = gtk_separator_menu_item_new();
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), separator);
 	
@@ -231,31 +233,43 @@ GtkWidget * create_options_menu(struct stream_viewer * viewer)
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), show_settings);
 	g_signal_connect(show_settings, "toggled", G_CALLBACK(on_check_menu_toggled_int_value), &viewer->show_area_settings);
 	
+	/* view */
 	separator = gtk_separator_menu_item_new();
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), separator);
+	
+	GtkWidget * view_menu = gtk_menu_item_new_with_label(_("view"));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), view_menu);
+	GtkWidget * view_submenu = gtk_menu_new();
+	gtk_menu_item_set_submenu(GTK_MENU_ITEM(view_menu), view_submenu);
 	
 	GtkWidget * show_counters_menu = gtk_check_menu_item_new_with_label(_("Show Counters List"));
-	gtk_menu_shell_append(GTK_MENU_SHELL(menu), show_counters_menu);
+	gtk_menu_shell_append(GTK_MENU_SHELL(view_submenu), show_counters_menu);
 	g_signal_connect(show_counters_menu, "toggled", G_CALLBACK(on_check_menu_toggled_int_value), &viewer->show_counters);
 	
-	// add separator
-	separator = gtk_separator_menu_item_new();
-	gtk_menu_shell_append(GTK_MENU_SHELL(menu), separator);
-	
 	GtkWidget * show_toolbars_menu = gtk_check_menu_item_new_with_label(_("Show toolbars"));
-	gtk_menu_shell_append(GTK_MENU_SHELL(menu), show_toolbars_menu);
+	gtk_menu_shell_append(GTK_MENU_SHELL(view_submenu), show_toolbars_menu);
 	gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(show_toolbars_menu), TRUE);
 	g_signal_connect(show_toolbars_menu, "toggled", G_CALLBACK(on_show_hide_toolbars_toggled), viewer);
 	
 	
-	// add separator
+	/* ai menu */
 	separator = gtk_separator_menu_item_new();
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), separator);
+	
+	GtkWidget * ai_menu = gtk_menu_item_new_with_label(_("AI engine"));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), ai_menu);
+	
+	GtkWidget * ai_submenu = gtk_menu_new();
+	gtk_menu_item_set_submenu(GTK_MENU_ITEM(ai_menu), ai_submenu);
 	
 	GtkWidget * enable_ai = gtk_check_menu_item_new_with_label(_("Enable AI engine"));
 	if(stream) gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(enable_ai), stream->ai_enabled);
 	g_signal_connect(enable_ai, "toggled", G_CALLBACK(on_check_menu_toggled_int_value), &stream->ai_enabled);
-	gtk_menu_shell_append(GTK_MENU_SHELL(menu), enable_ai);
+	gtk_menu_shell_append(GTK_MENU_SHELL(ai_submenu), enable_ai);
+	
+	GtkWidget * face_masking = gtk_check_menu_item_new_with_label(_("Masking Face"));
+	g_signal_connect(face_masking, "toggled", G_CALLBACK(on_check_menu_toggled_int_value), &viewer->face_masking_flag);
+	gtk_menu_shell_append(GTK_MENU_SHELL(ai_submenu), face_masking);
 
 	separator = gtk_separator_menu_item_new();
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), separator);

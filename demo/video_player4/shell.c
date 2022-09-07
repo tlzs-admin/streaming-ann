@@ -34,6 +34,12 @@
 #include "shell_private.c.impl"
 #include "utils.h"
 #include "video_streams.h"
+
+
+static GdkRGBA s_default_fg = { .red = 0.0, .green = 0.0, .blue = 1.0, .alpha = 1.0 };
+static GdkRGBA s_default_bg = { .red = 0.7, .green = 0.7, .blue = 0.7, .alpha = 0.9 }; 
+static GdkRGBA s_default_face_bg = { .red = 0.7, .green = 0.7, .blue = 0.0, .alpha = 0.9 }; 
+
 ssize_t app_get_streams(struct app_context *app, struct video_stream **p_streams);
 
 static int shell_reload_config(struct shell_context * shell, json_object * jconfig);
@@ -88,8 +94,6 @@ static int shell_reload_config(struct shell_context * shell, json_object * jconf
 
 static int shell_init(struct shell_context * shell)
 {
-	
-	
 	init_windows(shell);
 	return 0;
 }
@@ -165,14 +169,58 @@ static void auto_free_ptr(void * ptr)
 	if(p) { free(p); *(void **)ptr = NULL; }
 }
 
+static void show_text(cairo_t *cr, int x, int y, int font_size, const char *sz_text, GdkRGBA *fg_color, GdkRGBA *bg_color, int text_width)
+{
+	if(NULL == fg_color) fg_color = &s_default_fg;
+	if(NULL == bg_color) bg_color = &s_default_bg;
+	
+	// draw text background
+	cairo_text_extents_t extents;
+	cairo_text_extents(cr, sz_text, &extents);
+	cairo_set_source_rgba(cr, bg_color->red, bg_color->green, bg_color->blue, bg_color->alpha);
+	cairo_rectangle(cr, x - 2, y - 2, 
+		(text_width>0)?text_width:(extents.width + extents.x_bearing + 4), 
+		extents.height + extents.y_advance + 4 - extents.y_bearing);
+	cairo_fill(cr); 
+	
+	// draw label
+	cairo_set_source_rgba(cr, fg_color->red, fg_color->green, fg_color->blue, fg_color->alpha);
+	cairo_move_to(cr, x, y + font_size);
+	cairo_show_text(cr, sz_text);
+	cairo_stroke(cr);
+	return;
+}
+
+static int calc_text_width(cairo_t *cr, int num_classes, char ** text_lines)
+{
+	int max_width = -1;
+	for(int i = 0; i < num_classes; ++i) {
+		cairo_text_extents_t extents;
+		cairo_text_extents(cr, text_lines[i], &extents);
+		int width = extents.width + extents.x_bearing + 4;
+		if(width > max_width) max_width = width;
+	}
+	return max_width;
+}
 
 static void draw_counters(cairo_t *cr, const int font_size, json_object *jcolors, struct stream_viewer *viewer)
 {
 	struct classes_counter_context * counters = viewer->counter_ctx;
 	int num_classes = counters->num_classes;
 	if(num_classes <= 0) return;
-	char sz_text[200] = "";
+
+	const size_t max_line_size = 200;
 	int x = 10, y = 10;
+	
+	char ** text_lines = calloc(num_classes, sizeof(*text_lines));
+	assert(text_lines);
+	for(int i = 0; i < num_classes; ++i) {
+		text_lines[i] = calloc(max_line_size, 1);
+		assert(text_lines[i]);
+		snprintf(text_lines[i], max_line_size, "%.10s: %d", _(counters->classes[i].name),  (int)counters->classes[i].count);
+	}
+
+	int text_width = calc_text_width(cr, num_classes, text_lines);
 	
 	for(int i = 0; i < num_classes; ++i) {
 		gboolean color_parsed = FALSE;
@@ -186,54 +234,22 @@ static void draw_counters(cairo_t *cr, const int font_size, json_object *jcolors
 			if(color_name) color_parsed = gdk_rgba_parse(&fg_color, color_name);
 		}
 		if(!color_parsed) gdk_rgba_parse(&fg_color, "green"); // default color
-		snprintf(sz_text, sizeof(sz_text), "%.10s: %d", _(counters->classes[i].name),  (int)counters->classes[i].count);
-		
-		// draw text background
-		cairo_text_extents_t extents;
-		cairo_text_extents(cr, sz_text, &extents);
-		cairo_set_source_rgba(cr, 0.7, 0.7, 0.7, 0.9);
-		cairo_rectangle(cr, x - 2, y - 2, 
-			extents.width + extents.x_bearing + 4, 
-			extents.height + extents.y_advance + 4 - extents.y_bearing);
-		cairo_fill(cr); 
-		
-		cairo_set_source_rgba(cr, fg_color.red, fg_color.green, fg_color.blue, 1.0);
-		// draw label
-		cairo_move_to(cr, x, y + font_size);
-		cairo_show_text(cr, sz_text);
-		cairo_stroke(cr);
-		
+		show_text(cr, x, y, font_size, text_lines[i], &fg_color, NULL, text_width);
 		y += font_size + 5;
 	}
+	
+	for(int i = 0; i < num_classes; ++i) { free(text_lines[i]); }
+	
+	free(text_lines);
+	return;
 }
 
-static void draw_ai_result(cairo_surface_t *surface, json_object *jresult, json_object *jcolors, struct stream_viewer *viewer)
+static void draw_bounding_boxes(cairo_t *cr, double width, double height,
+	int font_size, 
+	ssize_t num_detections, const struct darknet_detection * dets, 
+	json_object *jcolors, 
+	struct stream_viewer *viewer)
 {
-	assert(surface);
-	if(NULL == jresult) return;
-	
-	double width = cairo_image_surface_get_width(surface);
-	double height = cairo_image_surface_get_height(surface);
-	if(width < 1 || height < 1) return;
-	
-	const double font_size = (double)height / 32; 
-	const double line_width = (double)height / 240;
-	const char * font_family = "Mono"; 
-	
-	json_object * jdetections = NULL;
-	json_bool ok = json_object_object_get_ex(jresult, "detections", &jdetections);
-	if(!ok || NULL == jdetections) return;
-	
-	AUTO_FREE_PTR struct darknet_detection * dets = NULL;
-	ssize_t num_detections = darknet_detection_parse_json(jdetections, &dets);
-	
-	if(num_detections <= 0) return;
-	
-	cairo_t *cr = cairo_create(surface);
-	cairo_select_font_face(cr, font_family, CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
-	cairo_set_font_size(cr, font_size);
-	cairo_set_line_width(cr, line_width);
-	
 	struct classes_counter_context * counters = viewer->counter_ctx;
 	counters->reset(counters);
 	struct area_settings_dialog * settings = viewer->settings_dlg;
@@ -268,31 +284,86 @@ static void draw_ai_result(cairo_surface_t *surface, json_object *jresult, json_
 		
 		if(jcolors) {
 			json_object *jcolor = NULL;
-			ok = json_object_object_get_ex(jcolors, class_name, &jcolor);
-			if(jcolor) color_name = json_object_get_string(jcolor);
+			json_bool ok = json_object_object_get_ex(jcolors, class_name, &jcolor);
+			if(ok && jcolor) color_name = json_object_get_string(jcolor);
 			if(color_name) color_parsed = gdk_rgba_parse(&fg_color, color_name);
 		}
 		if(!color_parsed) gdk_rgba_parse(&fg_color, "green"); // default color
-		
-		// draw text background
-		cairo_text_extents_t extents;
-		cairo_text_extents(cr, _(class_name), &extents);
-		cairo_set_source_rgba(cr, 0.6, 0.6, 0.6, 0.8);
-		cairo_rectangle(cr, x - 2, y - 2, 
-			extents.width + 4, 
-			extents.height + extents.y_advance + 4 - extents.y_bearing);
-		cairo_fill(cr); 
 		
 		// draw bounding box
 		cairo_set_source_rgb(cr, fg_color.red, fg_color.green, fg_color.blue);
 		cairo_rectangle(cr, x, y, cx, cy);
 		cairo_stroke(cr);
 		
-		// draw label
-		cairo_move_to(cr, x, y + font_size);
-		cairo_show_text(cr, _(class_name));
-		cairo_stroke(cr);
+		show_text(cr, x, y, font_size, _(class_name), &fg_color, NULL, -1);
 	}
+	return;
+}
+
+static void draw_face_masking(cairo_t *cr, double width, double height,
+	ssize_t num_detections, const struct darknet_detection * dets, 
+	json_object *jcolors, 
+	struct stream_viewer *viewer)
+{
+	static const double face_ratio = 0.7;
+	static const double blur_face_size = 15;
+	
+	GdkRGBA face_bg = s_default_face_bg;
+	
+	for(ssize_t i = 0; i < num_detections; ++i) {
+		if(dets[i].class_id != 0) continue; // not person
+		
+		double x = dets[i].x * width;
+		double y = dets[i].y * height;
+		double cx = dets[i].cx * width;
+		double cy = dets[i].cy * height;
+		
+		double radius = (cx * face_ratio) / 2;
+		double center_x = x + cx / 2;
+		double center_y = y + radius;
+		if(center_y > (y + cy - radius) ) center_y = y + cy - radius;
+		
+		
+		// todo: blur_face(cr, kernel_size, center_x, center_y, radius);
+		/* draw masks */
+		cairo_set_source_rgba(cr, 
+			face_bg.red, face_bg.green, face_bg.blue, 
+			(radius>blur_face_size)?1.0:face_bg.alpha);
+		cairo_arc(cr, center_x, center_y, radius, 0.0, 3.1415926 * 2);
+		cairo_fill(cr);
+	}
+	return;
+}
+
+static void draw_ai_result(cairo_surface_t *surface, json_object *jresult, json_object *jcolors, struct stream_viewer *viewer)
+{
+	assert(surface);
+	if(NULL == jresult) return;
+	
+	double width = cairo_image_surface_get_width(surface);
+	double height = cairo_image_surface_get_height(surface);
+	if(width < 1 || height < 1) return;
+	
+	const double font_size = (double)height / 32; 
+	const double line_width = (double)height / 240;
+	const char * font_family = "Mono"; 
+	
+	json_object * jdetections = NULL;
+	json_bool ok = json_object_object_get_ex(jresult, "detections", &jdetections);
+	if(!ok || NULL == jdetections) return;
+	
+	AUTO_FREE_PTR struct darknet_detection * dets = NULL;
+	ssize_t num_detections = darknet_detection_parse_json(jdetections, &dets);
+	
+	if(num_detections <= 0) return;
+	cairo_t *cr = cairo_create(surface);
+	cairo_select_font_face(cr, font_family, CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+	cairo_set_font_size(cr, font_size);
+	cairo_set_line_width(cr, line_width);
+	
+	if(!viewer->face_masking_flag) draw_bounding_boxes(cr, width, height, font_size, 
+		num_detections, dets, jcolors, viewer);
+	else draw_face_masking(cr, width, height, num_detections, dets, jcolors, viewer);
 	
 	if(viewer->show_counters) draw_counters(cr, font_size, jcolors, viewer);
 	cairo_destroy(cr);

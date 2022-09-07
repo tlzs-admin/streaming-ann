@@ -511,7 +511,6 @@ static struct settings_private *settings_private_new(struct area_settings_dialog
 	return priv;
 }
 
-static void create_debug_window(struct settings_private * settings, GtkWidget * parent_window);
 struct area_settings_dialog * area_settings_dialog_new(GtkWidget * parent_window, const char * title, void * user_data)
 {
 	struct area_settings_dialog * settings = calloc(1, sizeof(*settings));
@@ -530,7 +529,7 @@ struct area_settings_dialog * area_settings_dialog_new(GtkWidget * parent_window
 	return settings;
 }
 
-#ifdef _DEBUG
+#ifdef DEBUG_AREA_SETTINGS
 static gboolean on_debug_window_draw(GtkWidget * da, cairo_t * cr, struct settings_private * priv)
 {
 	assert(priv);
@@ -551,10 +550,9 @@ static gboolean on_debug_window_draw(GtkWidget * da, cairo_t * cr, struct settin
 	}
 	return FALSE;
 }
-#endif
+
 static void create_debug_window(struct settings_private * priv, GtkWidget * parent_window)
 {
-#ifdef _DEBUG
 	GtkWidget * dlg = gtk_dialog_new_with_buttons("debug", GTK_WINDOW(parent_window), 
 		GTK_DIALOG_DESTROY_WITH_PARENT, 
 		"hide", GTK_RESPONSE_CANCEL, 
@@ -571,7 +569,9 @@ static void create_debug_window(struct settings_private * priv, GtkWidget * pare
 	
 	priv->debug_window = dlg;
 	priv->debug_da = da;
-	
-#endif
 	return;
 }
+#else 
+#define create_debug_window(settings, parent_window) do { } while(0)
+#endif
+

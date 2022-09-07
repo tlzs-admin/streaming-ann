@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <json-c/json.h>
 #include <limits.h>
+#include <pthread.h>
 
 #include <libintl.h>	// gettext()
 #ifndef _
@@ -18,6 +19,7 @@ struct ai_context
 {
 	int id;
 	int enabled;
+	pthread_mutex_t mutex;
 	struct ai_engine *engine;
 };
 

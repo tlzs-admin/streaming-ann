@@ -110,7 +110,9 @@ static void * video_stream_thread(void *user_data)
 			struct ai_context *ai = &stream->ai_engines[0];
 			if(ai->enabled) {
 				
+				pthread_mutex_lock(&ai->mutex);
 				rc = ai->engine->predict(ai->engine, frame, &jresult);
+				pthread_mutex_unlock(&ai->mutex);
 				if(jresult) {
 					frame->meta_data = jresult;	
 					sleep_flags = 0;

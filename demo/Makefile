@@ -8,7 +8,7 @@ LINKER=gcc -std=gnu99 -D_DEFAULT_SOURCE -D_GNU_SOURCE
 AR=ar cr
 
 CFLAGS = -Wall -I. -I../include
-LIBS = ../lib/libann-utils.a -lm -lpthread -ldl -ljpeg 
+LIBS = ../lib/libann-utils.a -lm -lpthread -ldl -ljpeg -lcurl
 
 ifeq ($(DEBUG),1)
 CFLAGS += -g -D_DEBUG

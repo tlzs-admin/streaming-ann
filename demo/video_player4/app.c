@@ -34,6 +34,8 @@
 #include <gtk/gtk.h>
 #include <getopt.h>
 
+#include <curl/curl.h>
+
 #include <libgen.h>
 #include <pthread.h>
 
@@ -81,6 +83,9 @@ struct app_context *app_context_init(struct app_context *app, void * user_data)
 {
 	if(NULL == app) app = calloc(1, sizeof(*app));
 	assert(app);
+	
+	curl_global_init(CURL_GLOBAL_ALL);
+	
 	app->user_data = user_data;
 	app->reload_config = app_reload_config;
 	app->init = app_init;
@@ -125,6 +130,8 @@ static int parse_ai_engines(struct app_context *app, json_object *jai_engines)
 	struct ai_context *ai_engines = calloc(num_ai_engines, sizeof(*ai_engines));
 	assert(ai_engines);
 	for(int i = 0; i < num_ai_engines; ++i) {
+		pthread_mutex_init(&ai_engines[i].mutex, NULL);
+		
 		json_object *jai = json_object_array_get_idx(jai_engines, i);
 		if(NULL == jai) continue;
 		

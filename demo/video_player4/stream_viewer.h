@@ -36,6 +36,7 @@ struct stream_viewer
 	int show_area_settings;
 	struct area_settings_dialog *settings_dlg;
 	
+	int face_masking_flag;
 };
 
 struct stream_viewer * stream_viewer_init(struct stream_viewer *viewer, int index, int min_width, int min_height, struct shell_context *shell);
