@@ -1,5 +1,5 @@
 /*
- * video-player.c
+ * video-player4.c
  * 
  * Copyright 2022 chehw <hongwei.che@gmail.com>
  * 
@@ -25,12 +25,13 @@
  * 
  */
 
+/* LANGUAGE=ja_JP:ja ./video-player4 */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
-
+#include <locale.h>
 #include "app.h"
 #include "ann-plugin.h"
 
@@ -40,15 +41,21 @@ int main(int argc, char ** argv)
 {
 	ann_plugins_helpler_init(NULL, "plugins", NULL);
 	
+	setlocale(LC_ALL,"");
 	struct app_context *app = g_app;
 	app_context_init(app, NULL);
 	
-	char *domain_path = bindtextdomain(TEXT_DOMAIN, "langs");
+	char lang_path[PATH_MAX + 100] = "";
+	snprintf(lang_path, sizeof(lang_path), "%s/langs", app->work_dir); 
+	
+	char *domain_path = bindtextdomain(TEXT_DOMAIN, lang_path);
 	printf("langs.base_dir = %s\n", domain_path);
 	
 	// set domain for future gettext() calls 
 	char *text_domain = textdomain(TEXT_DOMAIN);
 	printf("text_domain: %s\n", text_domain);
+	
+	printf(_("Settings"));
 	
 	int rc = app->init(app, argc, argv);
 	assert(0 == rc);
