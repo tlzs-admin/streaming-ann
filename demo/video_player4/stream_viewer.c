@@ -51,6 +51,20 @@ static void apply_video_files_filter(GtkFileChooser *file_chooser)
 }
 
 
+static int on_video_status_changed(struct video_source2 * video, GstState old_state, GstState new_state, void * user_data);
+static void on_uri_changed(GtkWidget * widget, struct stream_viewer *viewer);
+static int on_eos(struct video_source2 * video, void * user_data)
+{
+	struct stream_viewer *viewer = user_data;
+	assert(viewer && viewer->stream);
+	assert(viewer->stream->video == video);
+	
+	// auto restart 
+	on_uri_changed(NULL, viewer);
+	
+	return 0;
+}
+
 static void on_uri_changed(GtkWidget * widget, struct stream_viewer *viewer)
 {
 	assert(viewer && viewer->shell);
@@ -80,6 +94,10 @@ static void on_uri_changed(GtkWidget * widget, struct stream_viewer *viewer)
 		if(counters && counters->clear_all) counters->clear_all(counters);
 		
 		int rc = video->set_uri2(video, uri, stream->image_width, stream->image_height);
+		video->user_data = viewer;
+		video->on_state_changed = on_video_status_changed;
+		video->on_eos = on_eos;
+		
 		rc = video->play(video);
 		rc = stream->run(stream);
 		
@@ -389,6 +407,7 @@ struct stream_viewer * stream_viewer_init(struct stream_viewer *viewer, int inde
 	if(video){
 		video->user_data = viewer;
 		video->on_state_changed = on_video_status_changed;
+		video->on_eos = on_eos;
 		uri = video->uri;
 	}
 	

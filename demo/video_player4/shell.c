@@ -349,6 +349,7 @@ void input_frame_clear_all(input_frame_t *frame)
 	input_frame_clear(frame);
 }
 
+gboolean stream_viewer_update_ui(struct stream_viewer * viewer);
 static gboolean on_timeout(struct shell_context *shell)
 {
 	struct app_context *app = shell->app;
@@ -371,6 +372,8 @@ static gboolean on_timeout(struct shell_context *shell)
 		draw_frame(panel, frame, (json_object *)frame->meta_data, priv->jcolors, &priv->views[i]);
 		
 		input_frame_clear_all(frame);
+		
+		stream_viewer_update_ui(&priv->views[i]);
 	}
 	return G_SOURCE_CONTINUE;
 }
