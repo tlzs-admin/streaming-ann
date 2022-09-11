@@ -137,8 +137,9 @@ static int parse_ai_engines(struct app_context *app, json_object *jai_engines)
 		
 		int id = json_get_value(jai, int, id);
 		const char *type = json_get_value(jai, string, type);
-		const char *url = json_get_value(jai, string, url);
-		assert(type && url);
+		//~ const char *url = json_get_value(jai, string, url);
+		//~ assert(type && url);
+		if(NULL == type) type = "ai-engine::darknet";
 		
 		ai_engine_t *engine = ai_engine_init(NULL, type, app);
 		assert(engine);

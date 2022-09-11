@@ -37,6 +37,7 @@
 #include "stream_viewer.h"
 
 #include "utils.h"
+GtkWidget * settings_dlg_new(const char *title, GtkWidget *parent_window, struct shell_context *shell);
 
 struct shell_private * shell_private_new(struct shell_context * shell)
 {
@@ -93,6 +94,20 @@ static gboolean on_window_key_release(GtkWidget * window, GdkEventKey * event, s
 	return FALSE;
 }
 
+static void on_app_settings_button_clicked(GtkWidget *button, struct shell_context *shell)
+{
+	static GtkWidget *dlg = NULL;
+	if(NULL == dlg) dlg = settings_dlg_new("App Settings", shell->priv->window, shell);
+	assert(dlg);
+	gtk_widget_show_all(dlg);
+	
+	guint response = gtk_dialog_run(GTK_DIALOG(dlg));
+	
+	g_print("%s: response = %u\n", __FUNCTION__, response);
+	
+	gtk_widget_hide(dlg);
+	return;
+}
 
 static int init_windows(struct shell_context *shell)
 {
@@ -142,6 +157,10 @@ static int init_windows(struct shell_context *shell)
 	priv->window = window;
 	priv->header_bar = header_bar;
 	priv->grid = grid;
+	
+	GtkWidget *app_settings_btn = gtk_button_new_from_icon_name("applications-system", GTK_ICON_SIZE_BUTTON);
+	gtk_header_bar_pack_start(GTK_HEADER_BAR(header_bar), app_settings_btn);
+	g_signal_connect(app_settings_btn, "clicked", G_CALLBACK(on_app_settings_button_clicked), shell);
 	
 	int num_cols = sqrt(num_streams) + 0.5;
 	if(grid_cols > 0) num_cols = grid_cols;
