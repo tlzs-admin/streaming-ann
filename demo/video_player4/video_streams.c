@@ -108,6 +108,8 @@ static void * video_stream_thread(void *user_data)
 			// todo: add multiple result support
 			json_object *jresult = NULL;
 			struct ai_context *ai = &stream->ai_engines[0];
+			if(ai->quit) break;
+			
 			if(ai->enabled) {
 				
 				pthread_mutex_lock(&ai->mutex);

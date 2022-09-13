@@ -346,6 +346,28 @@ static int app_stop(struct app_context *app)
 
 static void app_cleanup(struct app_context *app)
 {
+	if(NULL == app || NULL == app->priv) return;
+	struct app_private *priv = app->priv;
+	
+	struct ai_context *ai_engines = priv->ai_engines;
+	int num_ai_engines = priv->num_ai_engines;
+	if(NULL == ai_engines) return;
+	
+	
+	for(int i = 0; i < num_ai_engines; ++i) {
+		
+		pthread_mutex_lock(&ai_engines[i].mutex);
+		ai_engines[i].quit = 1;
+		
+		if(ai_engines[i].engine) {
+			ai_engine_cleanup(ai_engines[i].engine);
+			ai_engines[i].engine = NULL;
+		}
+	}
+	
+	priv->num_ai_engines = 0;
+	free(priv->ai_engines);
+	priv->ai_engines = NULL;
 	return;
 }
 

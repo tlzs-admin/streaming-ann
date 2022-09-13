@@ -12,6 +12,14 @@ extern "C" {
 #endif
 
 
+struct color_context
+{
+	GtkWidget *color_btn;
+	GtkWidget *alpha_spin;
+	GdkRGBA rgba;
+	int use_alpha;
+};
+
 struct shell_private
 {
 	struct shell_context * shell;
@@ -26,12 +34,16 @@ struct shell_private
 	guint timer_id;
 	
 	double fps;
-	json_object * jcolors;
+	json_object * jcolors;	///< @deprecated
 	GdkRGBA default_fg;
 	
 	
 	int fullscreen_status; 
 	int fullscreen_viewer_index;
+	
+	struct color_context bg;
+	struct color_context fg;
+	json_object *jclass_colors;
 };
 
 #ifdef __cplusplus

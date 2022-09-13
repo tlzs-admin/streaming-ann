@@ -62,3 +62,246 @@ msgstr "フルスクリーン"
 #: video_player4/stream_viewer.c:252
 msgid "Quit ..."
 msgstr "終了"
+
+#: coco names
+msgid "person"
+msgstr "人"
+
+msgid "bicycle"
+msgstr "自転車"
+
+msgid "car"
+msgstr "自動車"
+
+msgid "motorbike"
+msgstr "バイク"
+
+msgid "aeroplane"
+msgstr "飛行機"
+
+msgid "bus"
+msgstr "バス"
+
+msgid "train"
+msgstr "電車"
+
+msgid "truck"
+msgstr "トラック"
+
+msgid "boat"
+msgstr "ボート"
+
+msgid "traffic light"
+msgstr "信号機"
+
+msgid "fire hydrant"
+msgstr "消火栓"
+
+msgid "stop sign"
+msgstr "停止標識"
+
+msgid "parking meter"
+msgstr "駐車メーター"
+
+msgid "bench"
+msgstr "ベンチ"
+
+msgid "bird"
+msgstr "鳥"
+
+msgid "cat"
+msgstr "猫"
+
+msgid "dog"
+msgstr "犬"
+
+msgid "horse"
+msgstr "馬"
+
+msgid "sheep"
+msgstr "羊"
+
+msgid "cow"
+msgstr "牛"
+
+msgid "elephant"
+msgstr "象"
+
+msgid "bear"
+msgstr "くま"
+
+msgid "zebra"
+msgstr "シマウマ"
+
+
+msgid "giraffe"
+msgstr "キリン"
+
+msgid "backpack"
+msgstr "バックパック"
+
+msgid "umbrella"
+msgstr "傘"
+
+msgid "handbag"
+msgstr "ハンドバッグ"
+
+msgid "tie"
+msgstr "ネクタイ"
+
+msgid "suitcase"
+msgstr "スーツケース"
+
+msgid "frisbee"
+msgstr "フリスビー"
+
+msgid "skis"
+msgstr "スキー板"
+
+msgid "snowboard"
+msgstr "スノーボード"
+
+msgid "sports ball"
+msgstr "スポーツボール"
+
+msgid "kite"
+msgstr "凧"
+
+msgid "baseball bat"
+msgstr "野球バット"
+
+msgid "baseball glove"
+msgstr "野球グローブ"
+
+msgid "skateboard"
+msgstr "スケートボード"
+
+msgid "surfboard"
+msgstr "サーフボード"
+
+msgid "tennis racket"
+msgstr "テニスラケット"
+
+msgid "bottle"
+msgstr "ボトル"
+
+msgid "wine glass"
+msgstr "ワイングラス"
+
+msgid "cup"
+msgstr "カップ"
+
+msgid "fork"
+msgstr "フォーク"
+
+msgid "knife"
+msgstr "ナイフ"
+
+msgid "spoon"
+msgstr "スプーン"
+
+msgid "bowl"
+msgstr "碗"
+
+msgid "banana"
+msgstr "バナナ"
+
+msgid "apple"
+msgstr "りんご"
+
+msgid "sandwich"
+msgstr "サンドイッチ"
+
+msgid "orange"
+msgstr "オレンジ"
+
+msgid "broccoli"
+msgstr "ブロッコリ"
+
+
+msgid "carrot"
+msgstr "にんじん"
+
+msgid "hot dog"
+msgstr "ホットドッグ"
+
+msgid "pizza"
+msgstr "ピザ"
+
+msgid "donut"
+msgstr "ドーナツ"
+
+msgid "cake"
+msgstr "ケーキ"
+
+msgid "chair"
+msgstr "椅子"
+
+msgid "sofa"
+msgstr "ソファー"
+
+msgid "pottedplant"
+msgstr "鉢植え"
+
+msgid "bed"
+msgstr "ベッド"
+
+msgid "diningtable"
+msgstr "食卓"
+
+msgid "toilet"
+msgstr "トイレ"
+
+msgid "tvmonitor"
+msgstr "モニター"
+
+msgid "laptop"
+msgstr "ラップトップ"
+
+msgid "mouse"
+msgstr "マウス"
+
+msgid "remote"
+msgstr "リモコン"
+
+msgid "keyboard"
+msgstr "キーボード"
+
+msgid "cell phone"
+msgstr "携帯電話"
+
+msgid "microwave"
+msgstr "電子レンジ"
+
+msgid "oven"
+msgstr "オーブン"
+
+msgid "toaster"
+msgstr "トースター"
+
+msgid "sink"
+msgstr "流し台"
+
+msgid "refrigerator"
+msgstr "冷蔵庫"
+
+msgid "book"
+msgstr "本"
+
+msgid "clock"
+msgstr "時計"
+
+msgid "vase"
+msgstr "花瓶"
+
+msgid "scissors"
+msgstr "はさみ"
+
+msgid "teddy bear"
+msgstr "テディベア"
+
+msgid "hair drier"
+msgstr "ヘアドライヤー"
+
+msgid "toothbrush"
+msgstr "歯ブラシ"

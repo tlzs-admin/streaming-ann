@@ -36,12 +36,47 @@
 #include "shell.h"
 #include "utils.h"
 
+#include "shell_private.h"
+
 static json_object *app_get_config(struct app_context *app)
 {
 	return app->jconfig;
 }
 GtkWidget * settings_dlg_new(const char *title, GtkWidget *parent_window, struct shell_context *shell);
 
+
+static void on_alpha_value_changed(GtkSpinButton *spin, struct color_context *color)
+{
+	GdkRGBA *rgba = &color->rgba;
+	double value = gtk_spin_button_get_value(spin);
+	if(value >= 0 && value <= 1) rgba->alpha = value;
+	
+	if(color->use_alpha) {
+		gtk_color_chooser_set_rgba(GTK_COLOR_CHOOSER(color->color_btn), rgba);
+	}
+	debug_printf("== %s(): rgba = {%g,%g,%g,%g}", __FUNCTION__, rgba->red, rgba->green, rgba->blue, rgba->alpha);
+	return; 
+}
+
+static void on_rgb_value_changed(GtkWidget *color_btn, struct color_context *color)
+{
+	GdkRGBA *rgba = &color->rgba;
+	double old_alpha = rgba->alpha;
+	
+	gboolean use_alpha = gtk_color_chooser_get_use_alpha(GTK_COLOR_CHOOSER(color_btn));
+	gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(color_btn), rgba);
+	if(use_alpha && color->alpha_spin) {
+		gtk_spin_button_set_value(GTK_SPIN_BUTTON(color->alpha_spin), rgba->alpha);
+	}
+	else {
+		rgba->alpha = old_alpha;
+	}
+	
+	debug_printf("== %s(use_alpha=%d): rgba = {%g,%g,%g,%g}", __FUNCTION__, 
+		use_alpha,
+		rgba->red, rgba->green, rgba->blue, rgba->alpha);
+	return;
+}
 
 struct stack_child {
 	char *name;
@@ -173,52 +208,90 @@ static int stack_child_area_settings_init(struct stack_child *child, void *user_
 	return 0;
 }
 
+
+static inline void create_color_widget(GtkWidget *grid, int row, struct color_context *color)
+{
+	GtkWidget *label = NULL, *button = NULL, *spin = NULL;
+	
+	label = gtk_label_new(_("bg-color"));
+	gtk_grid_attach(GTK_GRID(grid), label, 0, row, 1, 1);
+	button = gtk_color_button_new_with_rgba(&color->rgba);
+	color->color_btn = button;
+	
+	gtk_color_chooser_set_use_alpha(GTK_COLOR_CHOOSER(button), color->use_alpha);
+	g_signal_connect(button, "color-set", G_CALLBACK(on_rgb_value_changed), color);
+	gtk_widget_set_hexpand(button, TRUE);
+	gtk_grid_attach(GTK_GRID(grid), button, 1, row, 1, 1);
+	
+	//if(!color->use_alpha) 
+	{
+		label = gtk_label_new(_("alpha"));
+		gtk_grid_attach(GTK_GRID(grid), label, 2, row, 1, 1);
+		spin = gtk_spin_button_new_with_range(0.0, 1.0, 0.1);
+		color->alpha_spin = spin;
+		
+		g_signal_connect(spin, "value-changed", G_CALLBACK(on_alpha_value_changed), color);
+		gtk_grid_attach(GTK_GRID(grid), spin, 3, row, 1, 1);
+		
+	}
+	return;
+}
+
+
+static void on_class_color_set(GtkWidget *color_btn, json_object *jclass_colors)
+{
+	assert(jclass_colors);
+	
+	const char *class_name = g_object_get_data(G_OBJECT(color_btn), "class_name");
+	
+	printf("class_name: %s\n", class_name);
+	if(NULL == class_name) return;
+	
+	GdkRGBA rgba = { 0 };
+	gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(color_btn), &rgba);
+	
+	gchar *color_str = gdk_rgba_to_string(&rgba);
+	if(color_str) {
+		json_object_object_add(jclass_colors, class_name, json_object_new_string(color_str));
+	}
+	return;
+}
 static int stack_child_colors_settings_init(struct stack_child *child, void *user_data)
 {
 	static GdkRGBA default_color = {.red = 0, .green = 1, .blue = 0, .alpha = 1};
+	
+	struct shell_context *shell = user_data;
+	assert(shell && shell->priv);
+	struct shell_private *priv = shell->priv;
 	
 	stack_child_init_default(child, user_data);
 	GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 	gtk_container_add(GTK_CONTAINER(child->frame), vbox);
 	
-	json_object *jcolors = json_object_from_file("../demo/colors.json");
-	assert(jcolors);
-	json_object *jcoco = NULL;
-	json_bool ok = json_object_object_get_ex(jcolors, "coco", &jcoco);
-	assert(ok && jcoco);
+	//assert(priv->jclass_colors);
+	json_object *jclass_colors = NULL;
+	if(NULL == priv->jclass_colors) {
+		json_object *jcolors = json_object_from_file("../demo/colors.json");
+		assert(jcolors);
+		
+		json_bool ok = json_object_object_get_ex(jcolors, "coco", &jclass_colors);
+		assert(ok && jclass_colors);
+		priv->jclass_colors = jclass_colors;
+	}
+	jclass_colors = priv->jclass_colors;
 	
-	GtkWidget *frame = gtk_frame_new("UI settings");
+	GtkWidget *frame = gtk_frame_new(_("UI settings"));
+	GtkWidget *grid = gtk_grid_new();
 	gtk_frame_set_shadow_type(GTK_FRAME(frame), GTK_SHADOW_ETCHED_OUT);
 	gtk_box_pack_start(GTK_BOX(vbox), frame, FALSE, TRUE, 2);
-	
-	GtkWidget *grid = gtk_grid_new();
-	GtkWidget *label = NULL, *button = NULL, *alpha = NULL;
 	gtk_container_add(GTK_CONTAINER(frame), grid);
 	gtk_grid_set_row_spacing(GTK_GRID(grid), 3);
 	gtk_grid_set_column_spacing(GTK_GRID(grid), 5);
-	label = gtk_label_new("bg-color");
-	gtk_grid_attach(GTK_GRID(grid), label, 0, 0, 1, 1);
-	button = gtk_color_button_new();
-	gtk_widget_set_hexpand(button, TRUE);
-	gtk_grid_attach(GTK_GRID(grid), button, 1, 0, 1, 1);
-	label = gtk_label_new("alpha");
-	gtk_grid_attach(GTK_GRID(grid), label, 2, 0, 1, 1);
-	alpha = gtk_spin_button_new_with_range(0.0, 1.0, 0.1);
-	gtk_grid_attach(GTK_GRID(grid), alpha, 3, 0, 1, 1);
-	
-	label = gtk_label_new("fg-color");
-	gtk_grid_attach(GTK_GRID(grid), label, 0, 1, 1, 1);
-	button = gtk_color_button_new();
-	gtk_widget_set_hexpand(button, TRUE);
-	gtk_grid_attach(GTK_GRID(grid), button, 1, 1, 1, 1);
-	label = gtk_label_new("alpha");
-	gtk_grid_attach(GTK_GRID(grid), label, 2, 1, 1, 1);
-	alpha = gtk_spin_button_new_with_range(0.0, 1.0, 0.1);
-	gtk_grid_attach(GTK_GRID(grid), alpha, 3, 1, 1, 1);
+	create_color_widget(grid, 0, &priv->bg);
+	create_color_widget(grid, 1, &priv->fg);
 	
 	
-	
-	frame = gtk_frame_new("Class Settings");
+	frame = gtk_frame_new(_("Class Settings"));
 	gtk_box_pack_start(GTK_BOX(vbox), frame, TRUE, TRUE, 2);
 	
 	GtkWidget *scrolled_win = gtk_scrolled_window_new(NULL, NULL);
@@ -229,8 +302,8 @@ static int stack_child_colors_settings_init(struct stack_child *child, void *use
 	gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(flow_box), 8);
 	gtk_container_add(GTK_CONTAINER(scrolled_win), flow_box);
 	
-	struct json_object_iterator iter = json_object_iter_begin(jcoco);
-	struct json_object_iterator end = json_object_iter_end(jcoco);
+	struct json_object_iterator iter = json_object_iter_begin(jclass_colors);
+	struct json_object_iterator end = json_object_iter_end(jclass_colors);
 	while(!json_object_iter_equal(&iter, &end))
 	{
 		const char *class_name = json_object_iter_peek_name(&iter);
@@ -247,9 +320,12 @@ static int stack_child_colors_settings_init(struct stack_child *child, void *use
 		printf("%s: %s\n", class_name, color_name);
 		
 		GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-		GtkWidget *label = gtk_label_new(class_name);
+		GtkWidget *label = gtk_label_new(_(class_name));
 		GtkWidget *color_btn = gtk_color_button_new_with_rgba(&color);
+		g_object_set_data(G_OBJECT(color_btn), "class_name", strdup(class_name));
 		gtk_color_button_set_title(GTK_COLOR_BUTTON(color_btn), class_name);
+		g_signal_connect(color_btn, "color-set", G_CALLBACK(on_class_color_set), jclass_colors);
+		
 		
 		gtk_box_pack_start(GTK_BOX(box), color_btn, TRUE, TRUE, 0);
 		gtk_box_pack_start(GTK_BOX(box), label, FALSE, TRUE, 0);
@@ -257,9 +333,6 @@ static int stack_child_colors_settings_init(struct stack_child *child, void *use
 	
 		json_object_iter_next(&iter);
 	}
-	json_object_put(jcolors);
-	
-
 	return 0; 
 }
 
@@ -282,7 +355,7 @@ struct stack_child *stack_child_new(GtkWidget *stack,
 	
 	int rc = init(child, user_data);
 	if(0 == rc) {
-		gtk_stack_add_titled(GTK_STACK(child->stack), child->frame, child->name, child->title);
+		gtk_stack_add_titled(GTK_STACK(child->stack), child->frame, child->name, _(child->title));
 	}
 	return child;
 }
@@ -322,12 +395,14 @@ GtkWidget * settings_dlg_new(const char *title, GtkWidget *parent_window, struct
 		int (*init)(struct stack_child *info, void *user_data);
 	}stack_properties[NUM_STACKS] = 
 	{
-		[0] = {.name = "streams", .title = "Streams", .init = stack_child_stream_settings_init },
+		[0] = {.name = "colors", .title = "Colors", .init = stack_child_colors_settings_init },
 		[1] = {.name = "areas", .title = "Area", .init = stack_child_area_settings_init },
-		[2] = {.name = "colors", .title = "Colors", .init = stack_child_colors_settings_init },
+		//~ [2] = {.name = "streams", .title = "Streams", .init = stack_child_stream_settings_init },
 	};
 
 	for(int i = 0; i < NUM_STACKS; ++i) {
+		if(NULL == stack_properties[i].name) continue;
+		
 		struct stack_child * child = stack_child_new(stack,
 			stack_properties[i].name, stack_properties[i].title, 
 			stack_properties[i].init, shell);
@@ -345,7 +420,6 @@ GtkWidget * settings_dlg_new(const char *title, GtkWidget *parent_window, struct
 struct app_private
 {
 	struct app_context *app;
-	json_object *jconfig;
 	struct shell_context *shell;
 };
 
@@ -354,7 +428,13 @@ static struct app_context g_app[1] = {{
 	.user_data = NULL,
 	.priv = g_app_priv,
 }};
+
+static struct shell_private g_shell_priv[1] = {{
+	.bg = {.rgba = {0.5, 0.5, 0.5, 0.8}, .use_alpha = 1 },
+	.fg = {.rgba = {0.0, 1.0, 0.0, 1.0}, .use_alpha = 1 },
+}};
 static struct shell_context g_shell[1] = {{
+	.priv = g_shell_priv,
 }};
 
 
@@ -366,7 +446,7 @@ struct app_context *app_context_init(struct app_context *app, void *user_data)
 	
 	app->user_data = user_data;
 	app->priv->app = app;
-	app->priv->jconfig = jconfig;
+	app->jconfig = jconfig;
 	return app;
 }
 

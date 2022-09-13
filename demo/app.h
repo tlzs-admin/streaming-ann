@@ -21,6 +21,7 @@ struct ai_context
 	int enabled;
 	pthread_mutex_t mutex;
 	struct ai_engine *engine;
+	int quit;
 };
 
 struct app_private;

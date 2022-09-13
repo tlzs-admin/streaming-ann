@@ -37,7 +37,7 @@ COMMON_OBJECTS := $(COMMON_SOURCES:%.c=%.o)
 VIDEO_PLAYER4_SOURCES := video-player4.c $(wildcard video_player4/*.c)
 VIDEO_PLAYER4_OBJECTS := $(VIDEO_PLAYER4_SOURCES:%.c=%.o)
 
-all: $(TARGETS)
+all: languages $(TARGETS)
 
 video-player: video-player.c
 	./make.sh $@
@@ -61,7 +61,10 @@ $(VIDEO_PLAYER4_OBJECTS): %.o : %.c $(DEPS)
 video-player4: $(VIDEO_PLAYER4_OBJECTS) $(COMMON_OBJECTS)
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 	
-.PHONY: clean
+.PHONY: clean languages
+
+languages: langs/ja.po
+	msgfmt --output-file langs/ja/LC_MESSAGES/demo.mo langs/ja.po
 
 clean:
 	rm -f $(COMMON_OBJECTS) $(VIDEO_PLAYER4_OBJECTS) 

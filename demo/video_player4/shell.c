@@ -68,8 +68,13 @@ struct shell_context * shell_context_init(struct shell_context * shell, void * _
 	assert(priv);
 	shell->priv = priv;
 	
+	priv->bg.rgba = s_default_bg;
+	priv->bg.use_alpha = 1;
+	
+	priv->fg.rgba = s_default_fg;
+	priv->fg.use_alpha = 0;
+	
 	shell_reload_config(shell, app->jconfig);
-
 	return shell;
 }
 void shell_context_cleanup(struct shell_context * shell)
@@ -86,9 +91,16 @@ static int shell_reload_config(struct shell_context * shell, json_object * jconf
 		
 	struct shell_private *priv = shell->priv;
 	priv->fps = json_get_value(jui, double, fps);
-	ok = json_object_object_get_ex(jui, "colors", &priv->jcolors);
-	if(!ok) return -1;
+	ok = json_object_object_get_ex(jui, "colors", &priv->jcolors);	///< @deprecated
 	
+	json_object *jglobal_colors = json_object_from_file("../demo/colors.json");
+	assert(jglobal_colors);
+	json_object *jcoco = NULL;
+	ok = json_object_object_get_ex(jglobal_colors, "coco", &jcoco);
+	assert(ok && jcoco);
+	priv->jclass_colors = jcoco;
+	
+	if(!ok) return -1;
 	return 0;
 }
 
@@ -340,13 +352,16 @@ static void draw_ai_result(cairo_surface_t *surface, json_object *jresult, json_
 	assert(surface);
 	if(NULL == jresult) return;
 	
+	struct shell_context *shell = viewer->shell;
+	assert(jcolors == shell->priv->jclass_colors);
+	
 	double width = cairo_image_surface_get_width(surface);
 	double height = cairo_image_surface_get_height(surface);
 	if(width < 1 || height < 1) return;
 	
 	const double font_size = (double)height / 32; 
 	const double line_width = (double)height / 240;
-	const char * font_family = "Mono"; 
+	const char * font_family = "IPAGothic"; 
 	
 	json_object * jdetections = NULL;
 	json_bool ok = json_object_object_get_ex(jresult, "detections", &jdetections);
@@ -452,7 +467,12 @@ static gboolean on_timeout(struct shell_context *shell)
 		if(frame_number <= 0) continue;
 		
 		da_panel_t *panel = priv->views[i].panel;
-		draw_frame(panel, frame, (json_object *)frame->meta_data, priv->jcolors, &priv->views[i]);
+		
+		json_object *jclass_colors = priv->jclass_colors;
+		if(NULL == jclass_colors) {
+			jclass_colors = priv->jcolors;
+		}
+		draw_frame(panel, frame, (json_object *)frame->meta_data, jclass_colors, &priv->views[i]);
 		
 		input_frame_clear_all(frame);
 		
