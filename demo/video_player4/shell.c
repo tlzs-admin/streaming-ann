@@ -320,7 +320,23 @@ static void draw_face_masking(cairo_t *cr, double width, double height,
 	static const double face_ratio = 0.7;
 	static const double blur_face_size = 15;
 	
-	GdkRGBA face_bg = s_default_face_bg;
+	struct shell_context *shell = viewer->shell;
+	assert(shell && shell->priv);
+	struct shell_private *priv = shell->priv;
+	
+	char msg[100] = "";
+	gchar *color_name = gdk_rgba_to_string(&priv->bg.rgba);
+	snprintf(msg, sizeof(msg), 
+		"face bg-color: %s (%g,%g,%g,%g)",
+		color_name, 
+		priv->bg.rgba.red, 
+		priv->bg.rgba.green,
+		priv->bg.rgba.blue,
+		priv->bg.rgba.alpha);
+	free(color_name);
+	gtk_header_bar_set_subtitle(GTK_HEADER_BAR(priv->header_bar), msg);
+	
+	GdkRGBA face_bg = (priv->bg.rgba.alpha > 0)?priv->bg.rgba:s_default_face_bg;
 	
 	for(ssize_t i = 0; i < num_detections; ++i) {
 		if(dets[i].class_id != 0) continue; // not person

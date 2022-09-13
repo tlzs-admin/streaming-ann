@@ -94,7 +94,7 @@ static gboolean on_window_key_release(GtkWidget * window, GdkEventKey * event, s
 	return FALSE;
 }
 
-static void on_app_settings_button_clicked(GtkWidget *button, struct shell_context *shell)
+void on_app_settings_button_clicked(GtkWidget *button, struct shell_context *shell)
 {
 	static GtkWidget *dlg = NULL;
 	if(NULL == dlg) {
@@ -154,6 +154,7 @@ static int init_windows(struct shell_context *shell)
 	gtk_window_set_titlebar(GTK_WINDOW(window), header_bar);
 	gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(header_bar), TRUE);
 	gtk_header_bar_set_title(GTK_HEADER_BAR(header_bar), title);
+	gtk_header_bar_set_has_subtitle(GTK_HEADER_BAR(header_bar), TRUE);
 	
 	
 	priv->window = window;

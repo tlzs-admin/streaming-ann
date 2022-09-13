@@ -209,11 +209,11 @@ static int stack_child_area_settings_init(struct stack_child *child, void *user_
 }
 
 
-static inline void create_color_widget(GtkWidget *grid, int row, struct color_context *color)
+static inline void create_color_widget(GtkWidget *grid, const char *title, int row, struct color_context *color)
 {
 	GtkWidget *label = NULL, *button = NULL, *spin = NULL;
 	
-	label = gtk_label_new(_("bg-color"));
+	label = gtk_label_new(title);
 	gtk_grid_attach(GTK_GRID(grid), label, 0, row, 1, 1);
 	button = gtk_color_button_new_with_rgba(&color->rgba);
 	color->color_btn = button;
@@ -228,6 +228,7 @@ static inline void create_color_widget(GtkWidget *grid, int row, struct color_co
 		label = gtk_label_new(_("alpha"));
 		gtk_grid_attach(GTK_GRID(grid), label, 2, row, 1, 1);
 		spin = gtk_spin_button_new_with_range(0.0, 1.0, 0.1);
+		gtk_spin_button_set_value(GTK_SPIN_BUTTON(spin), color->rgba.alpha);
 		color->alpha_spin = spin;
 		
 		g_signal_connect(spin, "value-changed", G_CALLBACK(on_alpha_value_changed), color);
@@ -253,6 +254,7 @@ static void on_class_color_set(GtkWidget *color_btn, json_object *jclass_colors)
 	gchar *color_str = gdk_rgba_to_string(&rgba);
 	if(color_str) {
 		json_object_object_add(jclass_colors, class_name, json_object_new_string(color_str));
+		free(color_str);
 	}
 	return;
 }
@@ -287,9 +289,8 @@ static int stack_child_colors_settings_init(struct stack_child *child, void *use
 	gtk_container_add(GTK_CONTAINER(frame), grid);
 	gtk_grid_set_row_spacing(GTK_GRID(grid), 3);
 	gtk_grid_set_column_spacing(GTK_GRID(grid), 5);
-	create_color_widget(grid, 0, &priv->bg);
-	create_color_widget(grid, 1, &priv->fg);
-	
+	create_color_widget(grid, _("bg color"), 0, &priv->bg);
+	create_color_widget(grid, _("fg color"), 1, &priv->fg);
 	
 	frame = gtk_frame_new(_("Class Settings"));
 	gtk_box_pack_start(GTK_BOX(vbox), frame, TRUE, TRUE, 2);
@@ -410,6 +411,10 @@ GtkWidget * settings_dlg_new(const char *title, GtkWidget *parent_window, struct
 		//~ gtk_stack_add_titled(GTK_STACK(stack), child->frame, info[i].name, info[i].title);
 		gtk_widget_set_size_request(child->frame, 600, 400);
 	}
+	
+	#define UNUSED(x) (void)((x))
+	UNUSED(stack_child_stream_settings_init);
+
 	return dlg;
 }
 #undef NUM_STACKS
@@ -417,6 +422,8 @@ GtkWidget * settings_dlg_new(const char *title, GtkWidget *parent_window, struct
 
 
 #if defined(TEST_DEMO_SETTINGS_DLG_) && defined(_STAND_ALONE)
+#include <locale.h>
+
 struct app_private
 {
 	struct app_context *app;
@@ -452,10 +459,18 @@ struct app_context *app_context_init(struct app_context *app, void *user_data)
 
 int main(int argc, char **argv)
 {
+	setlocale(LC_ALL,"");
 	gtk_init(&argc, &argv);
 	
 	struct app_context *app = app_context_init(NULL, NULL);
 	assert(app);
+	
+	char *domain_path = bindtextdomain("demo", "../demo/langs");
+	printf("langs.base_dir = %s\n", domain_path);
+	
+	// set domain for future gettext() calls 
+	char *text_domain = textdomain("demo");
+	printf("text_domain: %s\n", text_domain);
 	
 	struct shell_context *shell = g_shell;
 	shell->app = app;

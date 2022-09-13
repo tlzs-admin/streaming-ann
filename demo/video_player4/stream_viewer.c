@@ -189,7 +189,7 @@ static void on_stream_viewer_fullscreen_mode_switch(GtkCheckMenuItem *item, stru
 	return;
 }
 
-static void on_settings_menu_clicked(GtkMenuItem *item, struct stream_viewer *viewer)
+static void on_area_settings_menu_clicked(GtkMenuItem *item, struct stream_viewer *viewer)
 {
 	struct area_settings_dialog * dlg = viewer->settings_dlg;
 	assert(dlg);
@@ -210,6 +210,7 @@ static void on_settings_menu_clicked(GtkMenuItem *item, struct stream_viewer *vi
 	return;
 }
 
+void on_app_settings_button_clicked(GtkWidget *button, struct shell_context *shell);
 GtkWidget * create_options_menu(struct stream_viewer * viewer)
 {
 	struct shell_context *shell = viewer->shell;
@@ -221,16 +222,29 @@ GtkWidget * create_options_menu(struct stream_viewer * viewer)
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), open);
 	
 	
-	/* settings */
+	/* App settings */
 	GtkWidget * separator = gtk_separator_menu_item_new();
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), separator);
 	
 	GtkWidget * settings_menu = gtk_menu_item_new_with_label(_("Settings"));
-	g_signal_connect(settings_menu, "activate", G_CALLBACK(on_settings_menu_clicked), viewer);
+	GtkWidget * settings_submenu = gtk_menu_new();
+	gtk_menu_item_set_submenu(GTK_MENU_ITEM(settings_menu), settings_submenu);
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), settings_menu);
 	
+	GtkWidget * app_settings = gtk_menu_item_new_with_label(_("Global"));
+	g_signal_connect(app_settings, "activate", G_CALLBACK(on_app_settings_button_clicked), shell);
+	gtk_menu_shell_append(GTK_MENU_SHELL(settings_submenu), app_settings);
+	
+	/* area settings */
+	separator = gtk_separator_menu_item_new();
+	gtk_menu_shell_append(GTK_MENU_SHELL(settings_submenu), separator);
+	
+	GtkWidget * area_settings = gtk_menu_item_new_with_label(_("Area Settings"));
+	g_signal_connect(area_settings, "activate", G_CALLBACK(on_area_settings_menu_clicked), viewer);
+	gtk_menu_shell_append(GTK_MENU_SHELL(settings_submenu), area_settings);
+	
 	GtkWidget * show_settings = gtk_check_menu_item_new_with_label(_("Show settings area"));
-	gtk_menu_shell_append(GTK_MENU_SHELL(menu), show_settings);
+	gtk_menu_shell_append(GTK_MENU_SHELL(settings_submenu), show_settings);
 	g_signal_connect(show_settings, "toggled", G_CALLBACK(on_check_menu_toggled_int_value), &viewer->show_area_settings);
 	
 	/* view */
