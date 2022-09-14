@@ -348,8 +348,28 @@ static void draw_face_masking(cairo_t *cr, double width, double height,
 	
 	GdkRGBA face_bg = (priv->bg.rgba.alpha > 0)?priv->bg.rgba:s_default_face_bg;
 	
+	struct classes_counter_context * counters = viewer->counter_ctx;
+	counters->reset(counters);
+	struct area_settings_dialog * settings = viewer->settings_dlg;
+	
 	for(ssize_t i = 0; i < num_detections; ++i) {
 		if(dets[i].class_id != 0) continue; // not person
+		
+		const char *class_name = dets[i].class_name;
+		struct class_counter *counter = NULL;
+		int area_index = -1;
+		if(settings->num_areas > 0 && settings->areas[0].num_vertexes >= 3) {
+			double center_x = dets[i].x + dets[i].cx / 2;
+			double bottom_y = dets[i].y + dets[i].cy;
+			area_index = settings->pt_in_area(settings, center_x, bottom_y);
+			
+			if(area_index >= 0) {
+				counter = counters->add_by_id(counters, dets[i].class_id);
+			}
+		}else {
+			counter = counters->add_by_id(counters, dets[i].class_id);
+		}
+		if(counter) strncpy(counter->name, class_name, sizeof(counter->name));
 		
 		double x = dets[i].x * width;
 		double y = dets[i].y * height;

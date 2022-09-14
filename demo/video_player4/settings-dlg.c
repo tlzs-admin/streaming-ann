@@ -32,6 +32,11 @@
 #include <limits.h>
 #include <gtk/gtk.h>
 #include <json-c/json.h>
+
+#ifndef JSON_C_TO_STRING_NOSLASHESCAPE
+#define JSON_C_TO_STRING_NOSLASHESCAPE 0
+#endif
+
 #include "app.h"
 #include "shell.h"
 #include "utils.h"
