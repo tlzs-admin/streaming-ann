@@ -243,10 +243,6 @@ GtkWidget * create_options_menu(struct stream_viewer * viewer)
 	g_signal_connect(area_settings, "activate", G_CALLBACK(on_area_settings_menu_clicked), viewer);
 	gtk_menu_shell_append(GTK_MENU_SHELL(settings_submenu), area_settings);
 	
-	GtkWidget * show_settings = gtk_check_menu_item_new_with_label(_("Show settings area"));
-	gtk_menu_shell_append(GTK_MENU_SHELL(settings_submenu), show_settings);
-	g_signal_connect(show_settings, "toggled", G_CALLBACK(on_check_menu_toggled_int_value), &viewer->show_area_settings);
-	
 	/* view */
 	separator = gtk_separator_menu_item_new();
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), separator);
@@ -255,6 +251,10 @@ GtkWidget * create_options_menu(struct stream_viewer * viewer)
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), view_menu);
 	GtkWidget * view_submenu = gtk_menu_new();
 	gtk_menu_item_set_submenu(GTK_MENU_ITEM(view_menu), view_submenu);
+	
+	GtkWidget * show_settings = gtk_check_menu_item_new_with_label(_("Show settings area"));
+	gtk_menu_shell_append(GTK_MENU_SHELL(view_submenu), show_settings);
+	g_signal_connect(show_settings, "toggled", G_CALLBACK(on_check_menu_toggled_int_value), &viewer->show_area_settings);
 	
 	GtkWidget * show_counters_menu = gtk_check_menu_item_new_with_label(_("Show Counters List"));
 	gtk_menu_shell_append(GTK_MENU_SHELL(view_submenu), show_counters_menu);

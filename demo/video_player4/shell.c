@@ -199,7 +199,6 @@ static void show_text(cairo_t *cr, int x, int y, int font_size, const char *sz_t
 	cairo_set_source_rgba(cr, fg_color->red, fg_color->green, fg_color->blue, fg_color->alpha);
 	cairo_move_to(cr, x, y + font_size);
 	cairo_show_text(cr, sz_text);
-	cairo_stroke(cr);
 	return;
 }
 

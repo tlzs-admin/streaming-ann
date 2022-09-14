@@ -203,11 +203,10 @@ static int stack_child_area_settings_init(struct stack_child *child, void *user_
 	gtk_widget_set_hexpand(da, TRUE);
 	gtk_widget_set_vexpand(da, TRUE);
 	g_signal_connect(da, "draw", G_CALLBACK(on_da_draw), child);
-	gtk_container_add(GTK_CONTAINER(child->frame), da);
 	
+	gtk_container_add(GTK_CONTAINER(child->frame), da);
 	return 0;
 }
-
 
 static inline void create_color_widget(GtkWidget *grid, const char *title, int row, struct color_context *color)
 {
@@ -237,7 +236,6 @@ static inline void create_color_widget(GtkWidget *grid, const char *title, int r
 	}
 	return;
 }
-
 
 static void on_class_color_set(GtkWidget *color_btn, json_object *jclass_colors)
 {
