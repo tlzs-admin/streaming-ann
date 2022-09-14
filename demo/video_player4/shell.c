@@ -199,6 +199,8 @@ static void show_text(cairo_t *cr, int x, int y, int font_size, const char *sz_t
 	cairo_set_source_rgba(cr, fg_color->red, fg_color->green, fg_color->blue, fg_color->alpha);
 	cairo_move_to(cr, x, y + font_size);
 	cairo_show_text(cr, sz_text);
+	cairo_stroke(cr);
+	
 	return;
 }
 
@@ -219,7 +221,11 @@ static void draw_counters(cairo_t *cr, const int font_size, json_object *jcolors
 	struct classes_counter_context * counters = viewer->counter_ctx;
 	int num_classes = counters->num_classes;
 	if(num_classes <= 0) return;
-
+	
+	struct shell_context *shell = viewer->shell;
+	assert(shell && shell->priv);
+	
+	
 	const size_t max_line_size = 200;
 	int x = 10, y = 10;
 	
@@ -237,6 +243,9 @@ static void draw_counters(cairo_t *cr, const int font_size, json_object *jcolors
 		gboolean color_parsed = FALSE;
 		GdkRGBA fg_color;
 		const char *color_name = NULL;
+		if(counters->classes[i].id < 0 || !counters->classes[i].name[i]) continue;
+		if(viewer->face_masking_flag && counters->classes[i].id != 0) continue;
+		 
 		if(jcolors) {
 			json_bool ok = FALSE;
 			json_object *jcolor = NULL;
@@ -244,13 +253,15 @@ static void draw_counters(cairo_t *cr, const int font_size, json_object *jcolors
 			if(ok && jcolor) color_name = json_object_get_string(jcolor);
 			if(color_name) color_parsed = gdk_rgba_parse(&fg_color, color_name);
 		}
-		if(!color_parsed) gdk_rgba_parse(&fg_color, "green"); // default color
+		if(!color_parsed) {
+			fg_color = shell->priv->fg.rgba;
+		//	gdk_rgba_parse(&fg_color, "green"); // default color
+		}
 		show_text(cr, x, y, font_size, text_lines[i], &fg_color, NULL, text_width);
 		y += font_size + 5;
 	}
 	
 	for(int i = 0; i < num_classes; ++i) { free(text_lines[i]); }
-	
 	free(text_lines);
 	return;
 }
@@ -428,6 +439,8 @@ static void draw_area_settings(cairo_surface_t * surface, double width, double h
 static void draw_frame(da_panel_t *panel, const input_frame_t *frame, json_object *jresult, json_object *jcolors, struct stream_viewer *viewer)
 {
 	if(NULL == frame || NULL == frame->data || frame->width < 1 || frame->height < 1) return;
+	if(viewer->is_busy) return;
+	viewer->is_busy = 1;
 	
 	cairo_surface_t *surface = panel->surface;
 	unsigned char *image_data;
@@ -450,6 +463,8 @@ static void draw_frame(da_panel_t *panel, const input_frame_t *frame, json_objec
 	
 	draw_ai_result(surface, jresult, jcolors, viewer);
 	gtk_widget_queue_draw(panel->da);
+	
+	viewer->is_busy = 0;
 	return;
 }
 
