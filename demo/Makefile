@@ -7,7 +7,7 @@ CC=gcc -std=gnu99 -D_DEFAULT_SOURCE -D_GNU_SOURCE
 LINKER=gcc -std=gnu99 -D_DEFAULT_SOURCE -D_GNU_SOURCE
 AR=ar cr
 
-CFLAGS = -Wall -I. -I../include
+CFLAGS = -Wall -I. -I../include -pthread
 LIBS = ../lib/libann-utils.a -lm -lpthread -ldl -ljpeg -lcurl
 
 ifeq ($(DEBUG),1)
@@ -64,6 +64,7 @@ video-player4: $(VIDEO_PLAYER4_OBJECTS) $(COMMON_OBJECTS)
 .PHONY: clean languages
 
 languages: langs/ja.po
+	if ! which gettext >/dev/null 2>&1 ; then sudo apt-get install gettext; fi
 	msgfmt --output-file langs/ja/LC_MESSAGES/demo.mo langs/ja.po
 
 clean:

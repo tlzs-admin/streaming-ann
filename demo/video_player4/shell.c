@@ -234,7 +234,7 @@ static void draw_counters(cairo_t *cr, const int font_size, json_object *jcolors
 	for(int i = 0; i < num_classes; ++i) {
 		text_lines[i] = calloc(max_line_size, 1);
 		assert(text_lines[i]);
-		snprintf(text_lines[i], max_line_size, "%.10s: %d", _(counters->classes[i].name),  (int)counters->classes[i].count);
+		snprintf(text_lines[i], max_line_size, "%s: %d", _(counters->classes[i].name),  (int)counters->classes[i].count);
 	}
 
 	int text_width = calc_text_width(cr, num_classes, text_lines);

@@ -39,7 +39,8 @@ Optional dependencies:
 
     $ sudo apt-get install build-essential libgstreamer1.0-dev gstreamer1.0-libav \
         gstreamer1.0-plugins-{base,good,bad,ugly} \
-        libjpeg62-turbo-dev libcairo2-dev libpng-dev
+        libjpeg-dev libcairo2-dev libpng-dev \
+        gettext
     
     $ cd /tmp && git clone https://github.com/pjreddie/darknet.git
     $ cd darknet
@@ -53,6 +54,8 @@ Optional dependencies:
     
     (optional)
     $ sudo apt-get install libgtk-3-dev libjson-c-dev libsoup2.4-dev libcurl4-gnutls-dev
+    $ sudo apt-get install libopencv-dev
+    $ sudo apt-get install youtube-dl
     
 #### Windows
 
