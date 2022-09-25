@@ -153,6 +153,7 @@ static ssize_t cv_dnn_face_detect(struct cv_dnn_face *face,
 		float x1, y1, x2, y2;
 		float confidence = caffe_results.at<float>(i, 2);
 		if(confidence < confidence_threshold) continue;
+		detections[i].confidence = confidence;
 		
 		x1 = caffe_results.at<float>(i, 3);
 		y1 = caffe_results.at<float>(i, 4);

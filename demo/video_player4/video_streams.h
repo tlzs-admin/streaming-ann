@@ -13,6 +13,8 @@ extern "C" {
 #include "ai-engine.h"
 #include "app.h"
 
+#include "cv-wrapper.h"
+
 
 struct video_stream
 {
@@ -44,6 +46,10 @@ struct video_stream
 		pthread_cond_t cond;
 		pthread_mutex_t mutex;
 	}cond_mutex;
+	
+	struct ai_engine *cv_face;
+	int face_masking_flag;
+	
 };
 
 struct video_stream *video_stream_init(struct video_stream *stream, json_object *jstream, struct app_context *app);

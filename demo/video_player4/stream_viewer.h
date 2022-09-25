@@ -36,7 +36,7 @@ struct stream_viewer
 	int show_area_settings;
 	struct area_settings_dialog *settings_dlg;
 	
-	int face_masking_flag;
+//	int face_masking_flag;
 	int is_busy;
 };
 

@@ -132,6 +132,29 @@ static void * video_stream_thread(void *user_data)
 					//~ json_object_array_add(jresults, jresult?jresult:json_object_new_null());
 				//~ }
 			}
+			if(stream->face_masking_flag && stream->cv_face) {
+				ai_engine_t *dnn_face = stream->cv_face;
+				json_object *jface_dets = NULL;
+				rc = dnn_face->predict(dnn_face, frame, &jface_dets);
+				if(jface_dets) {
+					json_object *jfaces = NULL;
+					json_bool ok = json_object_object_get_ex(jface_dets, "detections", &jfaces);
+					if(ok && jfaces) {
+						if(NULL == jresult) { // generate default 
+							jresult = json_object_new_object();
+							json_object_object_add(jresult, "model", json_object_new_string("yolo+face"));
+							json_object_object_add(jresult, "detections", json_object_new_array());
+						}
+						assert(jresult);
+						json_object_object_add(jresult, "faces", json_object_get(jfaces));
+					}
+					json_object_put(jface_dets);
+				}
+				if(0 == rc && jresult) {
+					frame->meta_data = jresult;	
+					sleep_flags = 0;
+				}
+			}
 		}
 		swap_frame_buffer(stream);
 		if(sleep_flags) nanosleep(&interval, NULL);
@@ -250,6 +273,12 @@ struct video_stream * video_stream_init(struct video_stream *stream, json_object
 	video_stream_load_config(stream, jstream);
 	rc = pthread_create(&stream->th, NULL, video_stream_thread, stream);
 	
+	
+	stream->cv_face = ai_engine_init(NULL, "ai-engine::cvface", stream);
+	debug_printf("ai-engine::cvface: %p\n", stream->cv_face);
+	if(stream->cv_face) {
+		stream->cv_face->init(stream->cv_face, NULL);	// load config and models
+	}
 	
 	return stream;
 }

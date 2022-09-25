@@ -282,7 +282,7 @@ GtkWidget * create_options_menu(struct stream_viewer * viewer)
 	gtk_menu_shell_append(GTK_MENU_SHELL(ai_submenu), enable_ai);
 	
 	GtkWidget * face_masking = gtk_check_menu_item_new_with_label(_("Masking Face"));
-	g_signal_connect(face_masking, "toggled", G_CALLBACK(on_check_menu_toggled_int_value), &viewer->face_masking_flag);
+	g_signal_connect(face_masking, "toggled", G_CALLBACK(on_check_menu_toggled_int_value), &stream->face_masking_flag);
 	gtk_menu_shell_append(GTK_MENU_SHELL(ai_submenu), face_masking);
 
 	separator = gtk_separator_menu_item_new();

@@ -174,6 +174,30 @@ static ssize_t darknet_detection_parse_json(json_object * jdetections, struct da
 	return count;
 }
 
+static ssize_t face_detection_parse_json(json_object * jfaces, struct face_detection **p_faces)
+{
+	debug_printf("%s()...", __FUNCTION__);
+	assert(jfaces && p_faces);
+	
+	ssize_t count = json_object_array_length(jfaces);
+	if(count <= 0) return count;
+	
+	struct face_detection * faces = calloc(count, sizeof(*faces));
+	assert(faces);
+	for(ssize_t i = 0; i < count; ++i) {
+		json_object * jface = json_object_array_get_idx(jfaces, i);
+
+		faces[i].klass = json_get_value(jface, int, class_index);
+		faces[i].confidence = json_get_value(jface, double, confidence);
+		faces[i].x = json_get_value(jface, double, left);
+		faces[i].y = json_get_value(jface, double, top);
+		faces[i].cx = json_get_value(jface, double, width);
+		faces[i].cy = json_get_value(jface, double, height);
+	}
+	*p_faces = faces;
+	return count;
+}
+
 #define AUTO_FREE_PTR __attribute__((cleanup(auto_free_ptr)))
 static void auto_free_ptr(void * ptr)
 {
@@ -239,12 +263,14 @@ static void draw_counters(cairo_t *cr, const int font_size, json_object *jcolors
 
 	int text_width = calc_text_width(cr, num_classes, text_lines);
 	
+	struct video_stream *stream = viewer->stream;
+	assert(stream);
 	for(int i = 0; i < num_classes; ++i) {
 		gboolean color_parsed = FALSE;
 		GdkRGBA fg_color;
 		const char *color_name = NULL;
 		if(counters->classes[i].id < 0 || !counters->classes[i].name[i]) continue;
-		if(viewer->face_masking_flag && counters->classes[i].id != 0) continue;
+		if(stream->face_masking_flag && counters->classes[i].id != 0) continue;
 		 
 		if(jcolors) {
 			json_bool ok = FALSE;
@@ -322,12 +348,56 @@ static void draw_bounding_boxes(cairo_t *cr, double width, double height,
 	return;
 }
 
+static const double face_ratio = 0.7;
+static const double opencv_face_scale = 1.3;
+static double face_bbox_iou(const struct face_detection *restrict face, const struct darknet_detection *restrict bbox)
+{
+	assert(bbox && face);
+	if((bbox->cx * bbox->cy) < 0.0000001) return 0;
+	if((face->cx * face->cy) < 0.0000001) return 0;
+	
+	struct {
+		double x1, y1, x2, y2;
+		double radius;
+	}rt1, rt2, rt_intersect;
+	memset(&rt_intersect, 0, sizeof(rt_intersect));
+	
+	double x = face->x;
+	double y = face->y;
+	double cx = face->cx;
+	double cy = face->cy;
+	double radius = cx / 2.0 * opencv_face_scale;
+	double center_x = x + cx / 2;
+	double center_y = y + cy / 2;
+	
+	rt1.radius = radius;
+	rt1.x1 = center_x - radius; rt1.x2 = center_x + radius;
+	rt1.y1 = center_y - radius; rt1.y2 = center_y + radius;
+	
+	rt2.x1 = bbox->x; rt2.x2 = bbox->x + bbox->cx;
+	rt2.y1 = bbox->y; rt2.y2 = bbox->y + bbox->cy;
+	
+	if(rt2.x1 > rt1.x2 || rt2.x2 < rt1.x1) return 0.0;
+	if(rt2.y1 > rt1.y2 || rt2.y2 < rt1.y1) return 0.0;
+	
+	rt_intersect.x1 = (rt1.x1 > rt2.x1)?rt1.x1:rt2.x1;
+	rt_intersect.x2 = (rt1.x2 < rt2.x2)?rt1.x2:rt2.x2;
+	rt_intersect.y1 = (rt1.y1 > rt2.y1)?rt1.y1:rt2.y1;
+	rt_intersect.y2 = (rt1.y2 < rt2.y2)?rt1.y2:rt2.y2;
+	
+	double area_face = rt1.radius * rt1.radius * 4;
+	double area_intersect = (rt_intersect.x2 - rt_intersect.x1) * (rt_intersect.y2 - rt_intersect.y1);
+	if(area_intersect < 0) area_intersect *= -1;	
+	return (area_intersect / area_face);
+}
+
 static void draw_face_masking(cairo_t *cr, double width, double height,
-	ssize_t num_detections, const struct darknet_detection * dets, 
+	ssize_t num_detections, const struct darknet_detection * dets,
+	ssize_t num_faces, const struct face_detection *faces,
 	json_object *jcolors, 
 	struct stream_viewer *viewer)
 {
-	static const double face_ratio = 0.7;
+	
 	static const double blur_face_size = 15;
 	
 	struct shell_context *shell = viewer->shell;
@@ -352,8 +422,58 @@ static void draw_face_masking(cairo_t *cr, double width, double height,
 	counters->reset(counters);
 	struct area_settings_dialog * settings = viewer->settings_dlg;
 	
+	// draw opencv faces
+	for(ssize_t i = 0; i < num_faces; ++i) {
+		if(faces[i].confidence < 0.3) continue;
+		struct class_counter *counter = NULL;
+		int area_index = -1;
+		if(settings->num_areas > 0 && settings->areas[0].num_vertexes >= 3) {
+			double center_x = faces[i].x + faces[i].cx / 2;
+			double center_y = faces[i].y + faces[i].cy / 2;
+			area_index = settings->pt_in_area(settings, center_x, center_y);
+			
+			if(area_index >= 0) {
+				counter = counters->add_by_id(counters, faces[i].klass);
+			}
+		}else {
+			counter = counters->add_by_id(counters, faces[i].klass);
+		}
+		if(counter) strncpy(counter->name, "face", sizeof(counter->name));
+		
+		double x = faces[i].x * width;
+		double y = faces[i].y * height;
+		double cx = faces[i].cx * width;
+		double cy = faces[i].cy * height;
+		
+		double radius = cx / 2 * opencv_face_scale;
+		double center_x = x + cx / 2;
+		double center_y = y + cy / 2;
+		
+		// todo: blur_face(cr, kernel_size, center_x, center_y, radius);
+		/* draw masks */
+		cairo_set_source_rgba(cr, 
+			0, face_bg.green, face_bg.blue, 
+			(radius>blur_face_size)?1.0:face_bg.alpha);
+		cairo_arc(cr, center_x, center_y, radius, 0.0, 3.1415926 * 2);
+		cairo_fill(cr);
+	}
+	
+	
+	
 	for(ssize_t i = 0; i < num_detections; ++i) {
 		if(dets[i].class_id != 0) continue; // not person
+		
+		if(num_faces) {
+			double max_iou = -1.0;
+			for(ssize_t ii = 0; ii < num_faces; ++ii) {
+				double iou = face_bbox_iou(&faces[ii], &dets[i]);
+				if(iou > max_iou) max_iou = iou;
+			}
+			printf("max_iou: %g\n", max_iou);
+			if(max_iou > 0.5) continue;
+			
+			
+		}
 		
 		const char *class_name = dets[i].class_name;
 		struct class_counter *counter = NULL;
@@ -422,9 +542,24 @@ static void draw_ai_result(cairo_surface_t *surface, json_object *jresult, json_
 	cairo_set_font_size(cr, font_size);
 	cairo_set_line_width(cr, line_width);
 	
-	if(!viewer->face_masking_flag) draw_bounding_boxes(cr, width, height, font_size, 
+	struct video_stream *stream = viewer->stream;
+	assert(stream);
+	if(!stream->face_masking_flag) draw_bounding_boxes(cr, width, height, font_size, 
 		num_detections, dets, jcolors, viewer);
-	else draw_face_masking(cr, width, height, num_detections, dets, jcolors, viewer);
+	else {
+		debug_printf("jresult(+faces): %s\n", json_object_to_json_string_ext(jresult, JSON_C_TO_STRING_PRETTY));
+		json_object * jfaces = NULL;
+		ok = json_object_object_get_ex(jresult, "faces", &jfaces);
+		AUTO_FREE_PTR struct face_detection * faces = NULL;
+		ssize_t num_faces = 0;
+		if(ok && jfaces) {
+			num_faces = face_detection_parse_json(jfaces, &faces);
+		}
+		draw_face_masking(cr, width, height, 
+			num_detections, dets, 
+			num_faces, faces,
+			jcolors, viewer);
+	}
 	
 	if(viewer->show_counters) draw_counters(cr, font_size, jcolors, viewer);
 	cairo_destroy(cr);

@@ -37,6 +37,8 @@ COMMON_OBJECTS := $(COMMON_SOURCES:%.c=%.o)
 VIDEO_PLAYER4_SOURCES := video-player4.c $(wildcard video_player4/*.c)
 VIDEO_PLAYER4_OBJECTS := $(VIDEO_PLAYER4_SOURCES:%.c=%.o)
 
+CV_WRAPPER_OBJECTS := ../src/cpps/cvmat-wrapper.o.dyn ../src/cpps/cvface-wrapper.o.dyn
+
 all: languages $(TARGETS)
 
 video-player: video-player.c
@@ -60,7 +62,15 @@ $(VIDEO_PLAYER4_OBJECTS): %.o : %.c $(DEPS)
 
 video-player4: $(VIDEO_PLAYER4_OBJECTS) $(COMMON_OBJECTS)
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+
+plugins/libaiplugin-cvface.so : $(CV_WRAPPER_OBJECTS) opencv-plugin.c ../utils/utils.c
+	$(LINKER) -fPIC -shared -pthread -g -Wall -o $@ $^ $(CFLAGS) $(shell pkg-config --cflags --libs opencv4) -lm -lpthread -ljson-c -ldl -lstdc++
 	
+$(CV_WRAPPER_OBJECTS) : ../src/cpps/%.o.dyn : ../src/cpps/%.cpp
+	g++ -std=c++11 -fPIC -g -Wall -D_DEBUG -o $@ -c $< $(shell pkg-config --cflags opencv4) 
+
+
 .PHONY: clean languages
 
 languages: langs/ja.po
