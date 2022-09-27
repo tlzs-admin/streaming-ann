@@ -23,21 +23,22 @@ struct area_setting
 };
 
 struct settings_private;
+#define MAX_SETTING_AREAS (16)
 struct area_settings_dialog
 {
+	ssize_t num_areas;
+	struct area_setting areas[MAX_SETTING_AREAS];
+	
 	struct settings_private *priv;
 	long (* open)(struct area_settings_dialog * settings, const input_frame_t * bk_image);
 	long (*pt_in_area)(struct area_settings_dialog * settings, double x, double y); // <x,y>::range = [0.0 ~ 1.0]
 
 // public data
 	void * user_data;
-	
-#define MAX_SETTING_AREAS (16)
-	ssize_t num_areas;
-	struct area_setting areas[MAX_SETTING_AREAS];
 };
 struct area_settings_dialog * area_settings_dialog_new(GtkWidget * parent_window, const char * title, void * user_data);
 
+GtkWidget *area_settings_panel_new(struct area_settings_dialog *settings);
 
 #ifdef __cplusplus
 }

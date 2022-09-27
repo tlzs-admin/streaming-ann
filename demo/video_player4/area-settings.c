@@ -39,7 +39,7 @@
 #define _(str) gettext(str)
 #endif
 
-#include "video-player3-settings.h"
+#include "area-settings.h"
 #include "utils.h"
 
 static const int s_masks_width = 320;
@@ -462,6 +462,31 @@ static void on_da_resize(GtkWidget * da, GdkRectangle *allocation, struct area_s
 	return;
 }
 
+GtkWidget *area_settings_panel_new(struct area_settings_dialog *settings)
+{
+	GtkWidget * da = gtk_drawing_area_new();
+	gint events = gtk_widget_get_events(da);
+	gtk_widget_set_events(da, events 
+		| GDK_KEY_PRESS_MASK
+		| GDK_KEY_RELEASE_MASK
+		| GDK_POINTER_MOTION_MASK
+		| GDK_POINTER_MOTION_HINT_MASK
+		| GDK_BUTTON_PRESS_MASK
+		| GDK_BUTTON_RELEASE_MASK
+		| GDK_LEAVE_NOTIFY_MASK
+		);
+	gtk_widget_set_can_focus(da, TRUE);
+	
+	g_signal_connect(da, "draw", G_CALLBACK(on_da_draw), settings);
+	g_signal_connect(da, "size-allocate", G_CALLBACK(on_da_resize), settings);
+	g_signal_connect(da, "button-press-event", G_CALLBACK(on_button_press), settings);
+	g_signal_connect(da, "button-release-event", G_CALLBACK(on_button_release), settings);
+	g_signal_connect(da, "motion-notify-event", G_CALLBACK(on_mouse_move), settings);
+	g_signal_connect(da, "key-release-event", G_CALLBACK(on_key_release), settings);
+	
+	return da;
+}
+
 static struct settings_private *settings_private_new(struct area_settings_dialog * settings, 
 	GtkWidget * parent_window, const char * title)
 {
@@ -478,33 +503,16 @@ static struct settings_private *settings_private_new(struct area_settings_dialog
 	assert(dlg);
 	gtk_window_set_transient_for(GTK_WINDOW(dlg), GTK_WINDOW(parent_window));
 	
-	GtkWidget * content_area = gtk_dialog_get_content_area(GTK_DIALOG(dlg));
-	GtkWidget * da = gtk_drawing_area_new();
-	gint events = gtk_widget_get_events(da);
-	gtk_widget_set_events(da, events 
-		| GDK_KEY_PRESS_MASK
-		| GDK_KEY_RELEASE_MASK
-		| GDK_POINTER_MOTION_MASK
-		| GDK_POINTER_MOTION_HINT_MASK
-		| GDK_BUTTON_PRESS_MASK
-		| GDK_BUTTON_RELEASE_MASK
-		| GDK_LEAVE_NOTIFY_MASK
-		);
-	gtk_widget_set_can_focus(da, TRUE);
-	
-	GtkWidget * frame = gtk_frame_new(NULL);
+	GtkWidget *content_area = gtk_dialog_get_content_area(GTK_DIALOG(dlg));
+	GtkWidget *frame = gtk_frame_new(NULL);
+	GtkWidget *da = area_settings_panel_new(settings);
+	assert(da);
+	 
 	gtk_frame_set_shadow_type(GTK_FRAME(frame), GTK_SHADOW_ETCHED_IN);
 	gtk_container_add(GTK_CONTAINER(frame), da);
 	gtk_widget_set_size_request(frame, 640, 480);
-	
 	gtk_box_pack_start(GTK_BOX(content_area), frame, TRUE, TRUE, 0);
-	g_signal_connect(da, "draw", G_CALLBACK(on_da_draw), settings);
-	g_signal_connect(da, "size-allocate", G_CALLBACK(on_da_resize), settings);
-	g_signal_connect(da, "button-press-event", G_CALLBACK(on_button_press), settings);
-	g_signal_connect(da, "button-release-event", G_CALLBACK(on_button_release), settings);
-	g_signal_connect(da, "motion-notify-event", G_CALLBACK(on_mouse_move), settings);
-	g_signal_connect(da, "key-release-event", G_CALLBACK(on_key_release), settings);
-
+	
 	priv->dlg = dlg;
 	priv->da = da;
 	

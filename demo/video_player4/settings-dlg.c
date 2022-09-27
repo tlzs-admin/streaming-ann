@@ -33,6 +33,8 @@
 #include <gtk/gtk.h>
 #include <json-c/json.h>
 
+#include "area-settings.h"
+
 #ifndef JSON_C_TO_STRING_NOSLASHESCAPE
 #define JSON_C_TO_STRING_NOSLASHESCAPE 0
 #endif
@@ -90,6 +92,9 @@ struct stack_child {
 	GtkWidget *frame;
 	void *user_data;
 	int (*init)(struct stack_child *child, void *user_data);
+	
+	int num_streams;
+	GtkWidget **stream_da_list;
 };
 
 struct stack_child *stack_child_new(GtkWidget *stack, 
@@ -201,15 +206,85 @@ static gboolean on_da_draw(GtkWidget *da, cairo_t *cr, struct stack_child *child
 	clear_surface(cr);
 	return FALSE;
 }
+
+static void on_stream_selection_changed(GtkComboBox *combo, struct stack_child *child)
+{
+	struct shell_context *shell = child->user_data;
+	struct shell_private *priv = shell->priv;
+	
+	int index = gtk_combo_box_get_active(combo);
+	char msg[100] = "";
+	snprintf(msg, sizeof(msg), "activated stream index: %d", index + 1);
+	gtk_header_bar_set_subtitle(GTK_HEADER_BAR(priv->header_bar), msg);
+	
+	///< @todo : show area settings
+	for(int i = 0; i < child->num_streams; ++i) {
+		gtk_widget_set_visible(child->stream_da_list[i], (i == index));
+	}
+}
+
 static int stack_child_area_settings_init(struct stack_child *child, void *user_data)
 {
 	stack_child_init_default(child, user_data);
-	GtkWidget *da = gtk_drawing_area_new();
-	gtk_widget_set_hexpand(da, TRUE);
-	gtk_widget_set_vexpand(da, TRUE);
-	g_signal_connect(da, "draw", G_CALLBACK(on_da_draw), child);
 	
-	gtk_container_add(GTK_CONTAINER(child->frame), da);
+	struct shell_context *shell = user_data;
+	struct shell_private *priv = shell->priv;
+	
+	int num_streams = priv->num_streams;
+	assert(num_streams > 0);
+	struct stream_viewer *views = priv->views;
+	assert(views && views[0].settings_dlg != NULL);
+	
+	GtkWidget **stream_da_list = calloc(num_streams, sizeof(*stream_da_list));
+	assert(stream_da_list);
+	child->num_streams = num_streams;
+	child->stream_da_list = stream_da_list;
+	
+
+	GtkWidget *grid = gtk_grid_new();
+	gtk_grid_set_column_spacing(GTK_GRID(grid), 3);
+	GtkWidget *label = gtk_label_new("Select Stream: ");
+	gtk_widget_set_margin_start(label, 5);
+	gtk_widget_set_margin_end(label, 5);
+	
+	GtkWidget *combo = gtk_combo_box_new_with_entry();
+	GtkListStore *store = gtk_list_store_new(2, G_TYPE_INT, G_TYPE_STRING);
+	GtkTreeIter iter;
+	
+	for(int i = 0; i < num_streams; ++i)
+	{
+		char text[100] = "";
+		snprintf(text, sizeof(text), "Stream %d", i + 1);
+		gtk_list_store_append(store, &iter);
+		gtk_list_store_set(store, &iter, 0, i, 1, text, -1);
+		
+		stream_da_list[i] = area_settings_panel_new(views[i].settings_dlg);
+	}
+	gtk_combo_box_set_model(GTK_COMBO_BOX(combo), GTK_TREE_MODEL(store));
+	gtk_combo_box_set_active_id(GTK_COMBO_BOX(combo), 0);
+	gtk_combo_box_set_entry_text_column(GTK_COMBO_BOX(combo), 1);
+	g_signal_connect(combo, "changed", G_CALLBACK(on_stream_selection_changed), child);
+	
+	gtk_widget_set_hexpand(combo, TRUE);
+	gtk_grid_attach(GTK_GRID(grid), label, 0, 0, 1, 1);
+	gtk_grid_attach(GTK_GRID(grid), combo, 1, 0, 1, 1);
+	
+	for(int i = 0; i < num_streams; ++i) {
+		GtkWidget *da = stream_da_list[i];
+		gtk_widget_set_child_visible(da, FALSE);
+		assert(da);
+		gtk_widget_set_hexpand(da, TRUE);
+		gtk_widget_set_vexpand(da, TRUE);
+		gtk_grid_attach(GTK_GRID(grid), da, 0, 1, 2, 1);
+	}
+	//~ GtkWidget *da = gtk_drawing_area_new();
+	//~ gtk_widget_set_hexpand(da, TRUE);
+	//~ gtk_widget_set_vexpand(da, TRUE);
+	//~ g_signal_connect(da, "draw", G_CALLBACK(on_da_draw), child);
+	UNUSED(on_da_draw);
+	
+	
+	gtk_container_add(GTK_CONTAINER(child->frame), grid);
 	return 0;
 }
 
