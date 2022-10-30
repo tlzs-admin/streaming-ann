@@ -264,7 +264,7 @@ GtkWidget * create_options_menu(struct stream_viewer * viewer)
 	gtk_menu_shell_append(GTK_MENU_SHELL(view_submenu), show_toolbars_menu);
 	gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(show_toolbars_menu), TRUE);
 	g_signal_connect(show_toolbars_menu, "toggled", G_CALLBACK(on_show_hide_toolbars_toggled), viewer);
-	
+	viewer->show_toolbars_menu = show_toolbars_menu;
 	
 	/* ai menu */
 	separator = gtk_separator_menu_item_new();
@@ -499,6 +499,9 @@ struct stream_viewer * stream_viewer_init(struct stream_viewer *viewer, int inde
 	viewer->play_pause_button = play_pause_button;
 	viewer->grid = grid;
 	viewer->uri_entry = uri_entry;
+	
+	gtk_widget_set_child_visible(viewer->hbox[0], TRUE);
+	gtk_widget_set_child_visible(viewer->hbox[1], TRUE);
 	
 	viewer->context_menu = create_options_menu(viewer);
 	return viewer;

@@ -58,17 +58,19 @@ int fullscreen_mode_switch(struct shell_context * shell)
 	priv->fullscreen_status = !priv->fullscreen_status;
 	if(priv->fullscreen_status) {
 		int viewer_index = priv->fullscreen_viewer_index;
-		if(viewer_index < 0 || viewer_index >= priv->num_streams) viewer_index = 0;
+		//if(viewer_index < 0 || viewer_index >= priv->num_streams) viewer_index = 0;
 		
 		gtk_window_fullscreen(GTK_WINDOW(priv->window));
 		
-		for(int i = 0; i < priv->num_streams; ++i) {
-			if(i == viewer_index) {
-				//~ gtk_widget_hide(priv->views[i].hbox[0]);
-				//~ gtk_widget_hide(priv->views[i].hbox[1]);
-				continue;
+		if(viewer_index != -1) {
+			for(int i = 0; i < priv->num_streams; ++i) {
+				if(i == viewer_index) {
+					//~ gtk_widget_hide(priv->views[i].hbox[0]);
+					//~ gtk_widget_hide(priv->views[i].hbox[1]);
+					continue;
+				}
+				gtk_widget_hide(priv->views[i].grid);
 			}
-			gtk_widget_hide(priv->views[i].grid);
 		}
 	}else {
 		gtk_window_unfullscreen(GTK_WINDOW(priv->window));
@@ -109,6 +111,29 @@ void on_app_settings_button_clicked(GtkWidget *button, struct shell_context *she
 	g_print("%s: response = %u\n", __FUNCTION__, response);
 	gtk_widget_hide(dlg);
 	return;
+}
+
+static gboolean on_window_state_changed(GtkWidget *window, GdkEventWindowState *event, struct shell_context *shell)
+{
+	assert(event->type == GDK_WINDOW_STATE);
+	if(event->changed_mask & GDK_WINDOW_STATE_MAXIMIZED) {
+		if(event->new_window_state & GDK_WINDOW_STATE_MAXIMIZED) {
+			if(!shell->priv->fullscreen_status) {
+				fullscreen_mode_switch(shell);
+				return TRUE;
+			}
+		}
+	}
+	return FALSE;
+}
+
+static void on_shell_fullscreen(GtkWidget *button, struct shell_context *shell)
+{
+	if(!shell->priv->fullscreen_status) {
+		shell->priv->fullscreen_viewer_index = -1;
+		fullscreen_mode_switch(shell);
+		return;
+	}
 }
 
 static int init_windows(struct shell_context *shell)
@@ -171,13 +196,36 @@ static int init_windows(struct shell_context *shell)
 	for(int i = 0; i < num_streams; ++i) {
 		struct stream_viewer * view = stream_viewer_init(&priv->views[i], i, image_width, image_height, shell);
 		gtk_grid_attach(GTK_GRID(grid), view->grid, i % num_cols, i / num_cols, 1, 1);
+		
+		json_object *jstream = json_object_array_get_idx(jstreams, i);
+		view->panel->keep_ratio = json_get_value(jstream, int, keep_ratio);
 	}
 	
 	g_signal_connect(window, "key-release-event", G_CALLBACK(on_window_key_release), shell);
 	g_signal_connect_swapped(window, "destroy", G_CALLBACK(shell->stop), shell);
+	g_signal_connect(window, "window-state-event", G_CALLBACK(on_window_state_changed), shell);
+	
+	
+	GtkWidget *fullscreen_btn = gtk_button_new_from_icon_name("view-fullscreen", GTK_ICON_SIZE_BUTTON);
+	g_signal_connect(fullscreen_btn, "clicked", G_CALLBACK(on_shell_fullscreen), shell);
+	gtk_header_bar_pack_start(GTK_HEADER_BAR(header_bar), fullscreen_btn);
 	
 	gtk_widget_show_all(window);
 	
+	for(int i = 0; i < num_streams; ++i) {
+		struct stream_viewer * view = &priv->views[i];
+		json_object *jstream = json_object_array_get_idx(jstreams, i);
+		gboolean state = json_get_value(jstream, int, show_toolbar);
+		gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(view->show_toolbars_menu), state);
+		gtk_widget_set_visible(view->hbox[0], state);
+		gtk_widget_set_visible(view->hbox[1], state);
+	}
+	
+	shell->priv->fullscreen_viewer_index = -1;
+	gboolean fullscreen = json_get_value(jui, int, fullscreen);
+	if(fullscreen) {
+		fullscreen_mode_switch(shell);
+	}
 	return 0;
 }
 

@@ -1,0 +1,102 @@
+{
+	"ai-engines": [
+		{
+			"id": 1,
+			"name": "ai-1",
+			"type": "ai-engine::httpclient",
+			"url": "http://127.0.0.1:9090/ai",
+		},
+		{
+			"id": 2,
+			"name": "ai-2",
+			"type": "ai-engine::httpclient",
+			"url": "http://127.0.0.1:9090/ai",
+		},
+		{
+			"id": 3,
+			"name": "ai-3",
+			"type": "ai-engine::httpclient",
+			"url": "http://127.0.0.1:9090/ai",
+		//	"type": "ai-engine::darknet",
+		//	"conf_file": "models/yolov3.cfg", 
+		//	"weigths_file": "models/yolov3.weights" 
+		},
+		{
+			"id": 4,
+			"name": "ai-4",
+			"type": "ai-engine::httpclient",
+			"url": "http://127.0.0.1:9090/ai",
+		},
+	],
+	
+	"streams": [
+		{
+			"input": {
+				"name": "camera1",
+				"type": "io-plugin::video_source2",
+				"uri": "/dev/video0",
+				"ai_enabled": 1,
+			},
+			"ai-engines": [ {"id": 1, "enabled": 1}, ],
+			"show_toolsbar": 0,
+			"keep_ratio": 1,
+		},
+		{
+			"input": {
+				"name": "camera2",
+				"type": "io-plugin::video_source2",
+				"uri": "rtsp://camera_ip/stream0",
+				"ai_enabled": 1,
+			},
+			"ai-engines": [ {"id": 2, "enabled": 1}, ],
+			"show_toolsbar": 0,
+			"keep_ratio": 1,
+		},
+		{
+			"input": {
+				"name": "camera3",
+				"type": "io-plugin::video_source2",
+				"uri": "video-file.mp4",
+				"ai_enabled": 0,
+			},
+			"ai-engines": [ {"id": 3, "enabled": 1} ],
+			"show_toolsbar": 0,
+			"keep_ratio": 1,
+		},
+		{
+			"input": {
+				"name": "camera4",
+				"type": "io-plugin::video_source2",
+			//	"uri": "https://www.youtube.com/watch?v=RQA5RcIZlAM",
+			//	"ai_enabled": 1,
+				"uri": "",
+			},
+			"ai-engines": [ {"id": 4, "enabled": 1} ],
+			"show_toolsbar": 0,
+			"keep_ratio": 1,
+		},
+	],
+	"ui": {
+		"grid_size": {
+			"cols": -1, // <=0: auto calc cols, 
+			"rows": -1, // <=0: auto calc rows,
+		},
+		"fps": 10,
+		"fullscreen": 1,
+		"colors": {
+			"default": "green", // #00ff00
+			"person": "darkblue", // #00008b
+		//	"bicycle": "#adff2f", // GreenYellow
+			"car": "yellow", // #ffff00
+			"bus": "#fffacd", // LemonChiffon
+			"motorbike": "#f08080", // LightCoral 
+			"train": "#ff00ff", // Magenta
+			"truck": "Orange", // #ffa500
+		//	"traffic light": "Wheat", // #f5deb3,
+		//	"book": "red",
+		//	"tie": "#ccccff",
+		//	"bed": "dfff00",
+		},
+	}
+}
+
