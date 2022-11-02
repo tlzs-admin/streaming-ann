@@ -26,7 +26,7 @@ case ${target} in
             `pkg-config --cflags --libs libsoup-2.4` -lcuda -lcudart -lcublas -lcurand
 
         ;;
-    demo)
+    demo|demo-06)
 		gcc -std=gnu99 -g -Wall -I../include  -D_DEBUG \
             -o ${target} ${target}.c da_panel.c classes_counter.c \
             ../lib/libann-utils.a  \
