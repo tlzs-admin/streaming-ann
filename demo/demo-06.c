@@ -491,6 +491,7 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 			struct classes_counter_context * counters = shell->counter_ctx;
 			counters->reset(counters);
 			
+			int alert_flags = 0;
 			for(int i = 0; i < count; ++i)
 			{
 				gboolean color_parsed = FALSE;
@@ -537,7 +538,9 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 				
 				double center_x = x + cx / 2.0;
 				double bottom_y = y + cy;
-				if(!pt_in_rect(detection_area[0], center_x, bottom_y)) continue;
+				if(pt_in_rect(detection_area[0], center_x, bottom_y)) {
+					alert_flags = 1;
+				}
 				
 				x *= width;
 				y *= height;
@@ -558,15 +561,16 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 				cairo_move_to(cr, x, y + 15);
 				cairo_show_text(cr, class_name);
 				cairo_stroke(cr);
-				
+			}
+			
+			if(alert_flags) {
 				cairo_rectangle(cr, 0, 0, width, height);
 				cairo_set_source_rgba(cr, 1, 0, 0, 0.2);
 				cairo_fill_preserve(cr);
-				
+			
 				cairo_set_source_rgb(cr, 1, 0, 0);
 				cairo_set_line_width(cr, width / 30);
 				cairo_stroke(cr);
-				
 			}
 			
 			GtkListStore * store = gtk_list_store_new(LISTVIEW_COLUMNS_count, G_TYPE_INT, G_TYPE_STRING, G_TYPE_INT);
