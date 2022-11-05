@@ -38,6 +38,8 @@
 #include <gio/gio.h>
 
 #include "video_source2.h"
+#include "video_source_common.h"
+
 #include <gst/gst.h>
 
 #include "utils.h"
@@ -47,144 +49,6 @@
 #define PROTOCOL_https      "https://"
 #define PROTOCOL_file       "file://"
 #define PROTOCOL_v4l2       "/dev/video"
-
-
-enum video_source_type
-{
-	video_source_type_unknown,
-	video_source_type_file,
-	video_source_type_v4l2,
-	video_source_type_https,
-	video_source_type_rtsp,
-	video_source_type_rtspt,
-	video_source_types_count
-};
-
-enum video_source_subtype
-{
-	video_source_subtype_default,
-	video_source_subtype_hls = 1,
-	video_source_subtype_youtube = 2,
-	
-	video_source_subtype_file_mask = 0xFF00,
-	video_source_subtype_mp4  = 0x100,
-	video_source_subtype_mkv  = 0x200,
-	video_source_subtype_rmvb = 0x300,
-	video_source_subtype_avi  = 0x400,
-};
-
-static const char * s_video_source_protocols[video_source_types_count] = {
-	[video_source_type_unknown] = "default",
-	[video_source_type_file] = PROTOCOL_file,
-	[video_source_type_v4l2] = PROTOCOL_v4l2,
-	[video_source_type_https] = PROTOCOL_https,
-	[video_source_type_rtsp] = PROTOCOL_rtsp,
-	[video_source_type_rtspt] = PROTOCOL_rtspt,
-};
-
-static gboolean is_regular_file(const char *path_name)
-{
-	struct stat st[1];
-	memset(st, 0, sizeof(st));
-	
-	int rc = stat(path_name, st);
-	if(rc < 0) return FALSE;
-	
-	return ((st->st_mode & S_IFMT) == S_IFREG);
-}
-static gboolean is_video_file(const char * path_name, char **p_content_type, int * p_subtype)
-{
-	if(!is_regular_file(path_name)) return FALSE;
-	gchar * content_type = NULL;
-	gboolean uncertain = TRUE;
-	content_type = g_content_type_guess(path_name, NULL, 0, &uncertain);
-	if(uncertain || NULL == content_type) {
-		if(content_type) g_free(content_type);
-		return FALSE;
-	}
-	
-	gboolean ret = TRUE;
-	int subtype = video_source_subtype_default;
-	if(g_content_type_equals(content_type, "video/mp4")) {
-		subtype |= video_source_subtype_mp4;
-	}else if(g_content_type_equals(content_type, "video/x-matroska")) {
-		subtype |= video_source_subtype_mkv;
-	}else if(g_content_type_equals(content_type, "application/vnd.rn-realmedia")) {
-		subtype |= video_source_subtype_rmvb;
-	}else if(g_content_type_equals(content_type, "video/x-msvideo")) {
-		subtype |= video_source_subtype_avi;
-	}else {
-		ret = g_content_type_equals(content_type, "video/mpeg") 
-		 || g_content_type_equals(content_type, "video/quicktime") 
-		 || g_content_type_equals(content_type, "video/webm") 
-		 || g_content_type_equals(content_type, "video/x-flv") 
-		 || g_content_type_equals(content_type, "video/x-ms-wmv") 
-		 || 0;
-	}
-	if(p_subtype) *p_subtype = subtype;
-
-	if(p_content_type) *p_content_type = content_type;
-	else g_free(content_type);
-	
-	return ret;
-}
-
-enum video_source_type video_source2_type_from_uri(const char * uri, int * p_subtype)
-{
-	enum video_source_type type = video_source_type_unknown;
-	
-	for(type = video_source_type_v4l2; type < video_source_types_count; ++type)
-	{
-		if(s_video_source_protocols[type] && 
-			strncasecmp(uri, s_video_source_protocols[type], strlen(s_video_source_protocols[type])) == 0) break;
-	}
-	
-	int subtype = video_source_subtype_default;
-	if(type == video_source_types_count) {
-		if(strncasecmp(uri, PROTOCOL_file, sizeof(PROTOCOL_file) - 1) == 0) uri += sizeof(PROTOCOL_file) - 1;
-		
-		gboolean ok = is_video_file(uri, NULL, &subtype);
-		if(ok) type = video_source_type_file;
-	}
-	else if(type == video_source_type_https) {
-		uri += strlen(s_video_source_protocols[type]);
-		if(strncasecmp(uri, "www.youtube.com", sizeof("www.youtube.com") - 1) == 0) {
-			subtype |= video_source_subtype_youtube;
-		}else {
-			char * p_ext = strrchr(uri, '.');
-			if(p_ext && strcasecmp(p_ext, ".m3u8") == 0) subtype |= video_source_subtype_hls;
-		}
-	}
-	
-	if(p_subtype) *p_subtype = subtype;
-	return type;
-}
-
-
-
-static int get_youtube_embed_uri(const char * youtube_url, char embed_uri[static 4096], size_t size)
-{
-	static const char * fmt = "youtube-dl " 
-		" --format 'best[ext=mp4][protocol=https][height<=480]/best' "
-		" --get-url '%s' ";
-		
-	char command[8192] = "";
-	snprintf(command, sizeof(command), fmt, youtube_url);
-	FILE * fp = popen(command, "r");
-	if(NULL == fp) return -1;
-	
-	char * uri = fgets(embed_uri, size, fp);
-	int rc = pclose(fp);
-	
-	if(uri) {
-		int cb = strlen(uri);
-		while(cb > 0 && uri[cb - 1] == '\n') uri[--cb] = '\0';
-	}
-	
-	debug_printf("rc=%d, embed_uri: %s\n", rc, uri?uri:"");
-	
-	return uri?rc:-1;
-}
 
 /***********************************************************************************
  * video_source
@@ -402,7 +266,7 @@ static int video_source2_set_uri2(struct video_source2 * video, const char * uri
 	
 	debug_printf("uri: %s", uri);
 	
-	type = video_source2_type_from_uri(uri, &subtype);
+	type = video_source_type_from_uri(uri, &subtype);
 	if(type == video_source_type_unknown || type >= video_source_types_count) {
 		fprintf(stderr, "[ERROR]::invalid uri: %s\n", uri);
 		return -1;
@@ -473,8 +337,8 @@ static int video_source2_set_uri2(struct video_source2 * video, const char * uri
 			break;
 		}else if(subtype & video_source_subtype_youtube) {
 			
-			int rc = get_youtube_embed_uri(uri, embed_uri, sizeof(embed_uri));
-			if(rc) return -1;
+			ssize_t cb = youtube_uri_parse(uri, embed_uri, sizeof(embed_uri));
+			if(cb <= 0) return -1;
 			
 			return video->set_uri2(video, embed_uri, width, height);
 		}else {

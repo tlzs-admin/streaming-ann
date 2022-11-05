@@ -12,7 +12,15 @@ cd $workdir
 
 
 case "$target" in
-	video_source_common|test-video_source_common)
+	video_source_common)
+		gcc -std=gnu99 -g -O0 -Wall -D_DEBUG -D_DEFAULT_SOURCE -I../include -I../utils \
+			-DTEST_VIDEO_SOURCE_COMMON_ -D_STAND_ALONE \
+			-o video_source_common \
+			../utils/video_source_common.c \
+			$(pkg-config --cflags --libs gstreamer-1.0 gstreamer-app-1.0 gio-2.0 gtk+-3.0)
+		;;
+	
+	test-video_source_common)
 		echo "pwd: $PWD"
 		gcc -std=gnu99 -g -O0 -Wall -D_DEBUG -D_DEFAULT_SOURCE -I../include -I../utils \
 			-o test-video_source_common \

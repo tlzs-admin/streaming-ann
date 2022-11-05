@@ -60,3 +60,12 @@ backup/
 !demo/langs/ja
 !demo/langs/ja/LC_MESSAGES
 
+!raspi4
+!raspi4/*.c
+!raspi4/*.h
+!raspi4/*/*.c
+!raspi4/*/*.h
+!raspi4/Makefile
+
+!motion-jpeg
+!motion-jpeg/*

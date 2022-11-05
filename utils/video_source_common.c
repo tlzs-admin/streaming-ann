@@ -28,6 +28,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <pthread.h>
 
 #include <gst/app/gstappsink.h>
 
@@ -41,8 +42,6 @@
 #define PROTOCOL_https      "https://"
 #define PROTOCOL_file       "file://"
 #define PROTOCOL_v4l2       "/dev/video"
-
-
 static const char * s_video_source_protocols[video_source_types_count] = {
 	[video_source_type_unknown] = "default",
 	[video_source_type_file] = PROTOCOL_file,
@@ -51,6 +50,19 @@ static const char * s_video_source_protocols[video_source_types_count] = {
 	[video_source_type_rtsp] = PROTOCOL_rtsp,
 	[video_source_type_rtspt] = PROTOCOL_rtspt,
 };
+
+static const char *s_gst_state_string[GST_STATE_PLAYING + 1] = {
+	[GST_STATE_VOID_PENDING] = "GST_STATE_VOID_PENDING",
+	[GST_STATE_NULL] = "GST_STATE_NULL",
+	[GST_STATE_READY] = "GST_STATE_READY",
+	[GST_STATE_PAUSED] = "GST_STATE_PAUSED",
+	[GST_STATE_PLAYING] = "GST_STATE_PLAYING",
+};
+const char *gst_state_to_string(GstState state) 
+{
+	if(state < 0 || state > GST_STATE_PLAYING) return NULL;
+	return s_gst_state_string[(int)state];
+}
 
 static gboolean is_regular_file(const char *path_name)
 {
@@ -75,7 +87,7 @@ static gboolean is_video_file(const char * path_name, char **p_content_type, int
 	
 	gboolean ret = TRUE;
 	int subtype = video_source_subtype_default;
-	if(g_content_type_equals(content_type, "video/mp4")) {
+	if(g_content_type_is_a(content_type, "video/mp4")) {
 		subtype |= video_source_subtype_mp4;
 	}else if(g_content_type_equals(content_type, "video/x-matroska")) {
 		subtype |= video_source_subtype_mkv;
@@ -145,6 +157,8 @@ ssize_t youtube_uri_parse(const char * youtube_url, char embed_uri[static 4096],
 	char * uri = fgets(embed_uri, size, fp);
 	int rc = pclose(fp);
 	
+	(void)(rc);
+	
 	ssize_t cb = 0;
 	if(uri) {
 		cb = strlen(uri);
@@ -206,6 +220,12 @@ void video_frame_unref(struct video_frame *frame)
 	}
 	return;
 }
+struct video_frame *video_frame_addref(struct video_frame *frame)
+{
+	if(NULL == frame || frame->refs <= 0) return NULL;
+	++frame->refs;
+	return frame;
+}
 
 /******************************************************************************
  * video_source_common
@@ -232,6 +252,11 @@ struct video_source_common *video_source_common_init(struct video_source_common 
 {
 	if(NULL == video) video = calloc(1, sizeof(*video));
 	assert(video);
+	video->user_data = user_data;
+	
+	int rc = pthread_mutex_init(&video->mutex, NULL);
+	assert(0 == rc);
+	
 	video->frame_type = frame_type;
 	
 	video->init = video_init;
@@ -315,14 +340,14 @@ static inline int make_launch_command(char command[static 8192], size_t size,
 	
 	switch(type) {
 	case video_source_type_v4l2: 
-		cb = snprintf(p, p_end - p, "v4l2src device=%s io-mode=2", uri);
+		cb = snprintf(p, p_end - p, "v4l2src device=%s io-mode=2 ! videoconvert", uri);
 		break;
 	case video_source_type_file:
 		if(0 == strncasecmp(uri, "file://", 7)) uri += 7;
-		cb = snprintf(p, p_end - p, "uridecodebin uri=\"file://%s\"", uri);
+		cb = snprintf(p, p_end - p, "uridecodebin uri=\"file://%s\" ! videoconvert", uri);
 		break;
 	default:
-		cb = snprintf(p, p_end - p, "uridecodebin uri=\"%s\"", uri);
+		cb = snprintf(p, p_end - p, "uridecodebin uri=\"%s\" ! videoconvert", uri);
 		break;
 	}
 	assert(cb > 0);
@@ -373,7 +398,7 @@ static inline int make_launch_command(char command[static 8192], size_t size,
 	return 0;
 }
 
-static void app_sink_eos(GstAppSink *sink, gpointer user_data)
+static void on_app_sink_eos(GstAppSink *sink, gpointer user_data)
 {
 	debug_printf("%s()...", __FUNCTION__);
 	struct video_source_common *video = user_data;
@@ -381,23 +406,14 @@ static void app_sink_eos(GstAppSink *sink, gpointer user_data)
 	if(video->on_eos) video->on_eos(video, video->user_data);
 }
 
-static const char *s_gst_state_string[GST_STATE_PLAYING + 1] = {
-	[GST_STATE_VOID_PENDING] = "GST_STATE_VOID_PENDING",
-	[GST_STATE_NULL] = "GST_STATE_NULL",
-	[GST_STATE_READY] = "GST_STATE_READY",
-	[GST_STATE_PAUSED] = "GST_STATE_PAUSED",
-	[GST_STATE_PLAYING] = "GST_STATE_PLAYING",
-};
-const char *gst_state_to_string(GstState state) 
-{
-	if(state < 0 || state > GST_STATE_PLAYING) return NULL;
-	return s_gst_state_string[(int)state];
-}
 
-GstFlowReturn app_sink_new_preroll(GstAppSink *sink, gpointer user_data)
+
+GstFlowReturn on_app_sink_new_preroll(GstAppSink *sink, gpointer user_data)
 {
 	debug_printf("%s()...", __FUNCTION__);
 	struct video_source_common *video = user_data;
+	if(NULL == video || NULL == video->pipeline) return GST_FLOW_ERROR;
+	
 	assert(video && video->pipeline);
 	// query duration and positions
 	
@@ -417,43 +433,48 @@ GstFlowReturn app_sink_new_preroll(GstAppSink *sink, gpointer user_data)
 	return GST_FLOW_OK;
 }
 
-GstFlowReturn app_sink_new_sample(GstAppSink *sink, gpointer user_data)
+GstFlowReturn on_app_sink_new_sample(GstAppSink *sink, gpointer user_data)
 {
-	debug_printf("%s()...", __FUNCTION__);
+//	debug_printf("%s()...", __FUNCTION__);
 	struct video_source_common *video = user_data;
 	assert(video);
 	
 	++video->frame_number;
 	GstSample *sample = gst_app_sink_pull_sample(sink);
 	if(sample) {
-		if(video->on_new_frame) {
-			int width = -1;
-			int height = -1;
-			GstCaps *caps = gst_sample_get_caps(sample);
-			assert(caps);
-			ssize_t num_infos = gst_caps_get_size(caps);
-			assert(num_infos > 0);
+		int width = -1;
+		int height = -1;
+		GstCaps *caps = gst_sample_get_caps(sample);
+		assert(caps);
+		ssize_t num_infos = gst_caps_get_size(caps);
+		assert(num_infos > 0);
+		
+		const GstStructure *info = gst_caps_get_structure(caps, 0);
+		assert(info);
+		gst_structure_get_int(info, "width", &width);
+		gst_structure_get_int(info, "height", &height);
+		assert(width > 0 && height > 0);
+		
+		GstBuffer *buffer = gst_sample_get_buffer(sample);
+		if(buffer) {
+			GstMapInfo map;
+			memset(&map, 0, sizeof(map));
+			gst_buffer_map(buffer, &map, GST_MAP_READ);
 			
-			const GstStructure *info = gst_caps_get_structure(caps, 0);
-			assert(info);
-			gst_structure_get_int(info, "width", &width);
-			gst_structure_get_int(info, "height", &height);
-			assert(width > 0 && height > 0);
+			struct video_frame *frame = video_frame_new(video->frame_number, 
+				width, height, 
+				map.data, map.size, 0);
+			assert(frame);
+			frame->type = video->frame_type;
 			
-			GstBuffer *buffer = gst_sample_get_buffer(sample);
-			if(buffer) {
-				GstMapInfo map;
-				memset(&map, 0, sizeof(map));
-				gst_buffer_map(buffer, &map, GST_MAP_READ);
-				
-				struct video_frame *frame = video_frame_new(video->frame_number, 
-					width, height, 
-					map.data, map.size, 0);
-				assert(frame);
-				video->on_new_frame(video, frame, video->user_data);
-				video_frame_free(frame);
-				gst_buffer_unmap(buffer, &map);
-			}
+			pthread_mutex_lock(&video->mutex);
+			if(video->current_frame) video_frame_unref(video->current_frame);
+			video->current_frame = frame;
+			pthread_mutex_unlock(&video->mutex);
+			
+			if(video->on_new_frame) video->on_new_frame(video, frame, video->user_data);
+			
+			gst_buffer_unmap(buffer, &map);
 		}
 		gst_sample_unref(sample);
 	}
@@ -496,6 +517,13 @@ static gboolean on_pipeline_state_changed(GstBus *bus, GstMessage *message, stru
 			GST_OBJECT_NAME(message->src),
 		old_state, new_state, pending_state);
 		video->state = new_state;
+		
+		if(video->state == GST_STATE_PLAYING && video->begin_timestamp_ms <= 0) {
+			video->begin_timestamp_ms = get_time_ms(CLOCK_REALTIME);
+			video->begin_ticks_ms = get_time_ms(CLOCK_MONOTONIC);
+		}
+		
+		if(video->on_state_changed) video->on_state_changed(video, old_state, new_state, video->user_data);
 	}
 	return TRUE;
 }
@@ -558,9 +586,9 @@ static int relaunch_pipeline(struct video_source_common *video)
 	assert(sink);
 	video->appsink = GST_ELEMENT(sink);
 	GstAppSinkCallbacks callbacks = {
-		.eos = app_sink_eos,
-		.new_preroll = app_sink_new_preroll,
-		.new_sample = app_sink_new_sample,
+		.eos = on_app_sink_eos,
+		.new_preroll = on_app_sink_new_preroll,
+		.new_sample = on_app_sink_new_sample,
 	};
 	gst_app_sink_set_callbacks(sink, &callbacks, video, NULL);
 	video->pipeline = pipeline;
@@ -583,18 +611,36 @@ static int video_init(struct video_source_common *video, const char *uri, int wi
 	video->set_resolution(video, width, height);
 	if(framerate) video->set_framerate(video, framerate->rate, framerate->denominator);
 	
+	pthread_mutex_lock(&video->mutex);
+	video->state = -1;
 	video->frame_number = -1;
+	video->begin_ticks_ms = 0;
+	video->begin_timestamp_ms = 0;
+	if(video->current_frame) {
+		video_frame_unref(video->current_frame);
+		video->current_frame = NULL;
+	}
+	pthread_mutex_unlock(&video->mutex);
 	return relaunch_pipeline(video);
 }
 
 static struct video_frame * video_get_frame(struct video_source_common * video)
 {
-	return NULL;
+	pthread_mutex_lock(&video->mutex);
+	struct video_frame *frame = video_frame_addref(video->current_frame);
+	pthread_mutex_unlock(&video->mutex);
+	return frame;
 }
 static int video_play(struct video_source_common * video)
 {
+	int rc = 0;
+	if(video->settings_changed) {
+		rc = video->init(video, NULL, video->width, video->height, NULL);
+		if(rc) return -1;
+	}
 	GstElement *pipeline = video->pipeline;
 	if(NULL == pipeline) return -1;
+	
 	
 	GstStateChangeReturn ret = gst_element_set_state(pipeline, GST_STATE_PLAYING);
 	debug_printf("%s(): ret = %d\n", __FUNCTION__, ret);
@@ -603,7 +649,11 @@ static int video_play(struct video_source_common * video)
 	if(ret == GST_STATE_CHANGE_FAILURE) return -1;
 	
 	if(ret == GST_STATE_CHANGE_ASYNC) {
-		ret = gst_element_get_state(pipeline, &video->state, NULL, GST_CLOCK_TIME_NONE);
+		GstState state = 0;
+		ret = gst_element_get_state(pipeline, &state, NULL, GST_CLOCK_TIME_NONE);
+		
+		printf("get_state(): ret = %d, state=%d\n", ret, state);
+		video->state = state;
 	}
 	if(video->state != GST_STATE_PLAYING) return -1;
 	return 0;
@@ -620,7 +670,11 @@ static int video_pause(struct video_source_common * video)
 	if(ret == GST_STATE_CHANGE_FAILURE) return -1;
 	
 	if(ret == GST_STATE_CHANGE_ASYNC) {
-		ret = gst_element_get_state(pipeline, &video->state, NULL, GST_CLOCK_TIME_NONE);
+		GstState state = 0;
+		ret = gst_element_get_state(pipeline, &state, NULL, GST_CLOCK_TIME_NONE);
+		
+		printf("get_state(): ret = %d, state=%d\n", ret, state);
+		video->state = state;
 	}
 	if(video->state != GST_STATE_PAUSED) return -1;
 	return 0;
@@ -684,3 +738,318 @@ static int video_on_new_frame(struct video_source_common *video, const struct vi
 {
 	return -1;
 }
+
+/************************************************************************
+ * TEST Module
+************************************************************************/
+#if defined(TEST_VIDEO_SOURCE_COMMON_) && defined(_STAND_ALONE)
+#include <gtk/gtk.h>
+
+
+struct shell_context
+{
+	GtkWidget *window;
+	GtkWidget *header_bar;
+	GtkWidget *uri_entry;
+	GtkWidget *da;
+	
+	GtkWidget *play_btn;
+	GtkWidget *stop_btn;
+	GtkWidget *slider;
+	gulong slider_update_handler;
+	
+	
+	cairo_surface_t *da_surface;
+	double image_width;
+	double image_height;
+	
+	guint timer_id;
+	int quit;
+	double scale_factor;
+	struct video_source_common video[1];
+	double duration;
+};
+
+static void init_windows();
+static int shell_run();
+static int shell_stop();
+static struct shell_context g_shell[1] = {{
+	.scale_factor = 1.0,
+}};
+
+static int on_state_changed(struct video_source_common *video, GstState old_state, GstState new_state, void *user_data)
+{
+	struct shell_context *shell = video->user_data;
+	if(new_state > GST_STATE_READY) {
+		gtk_widget_set_sensitive(shell->play_btn, (new_state != GST_STATE_PLAYING));
+		gtk_widget_set_sensitive(shell->stop_btn, (new_state == GST_STATE_PLAYING));
+	}
+	return 0;
+}
+int main(int argc, char **argv)
+{
+	gtk_init(&argc, &argv);
+	gst_init(&argc, &argv);
+	struct shell_context *shell = g_shell;
+	struct video_source_common *video = video_source_common_init(shell->video, video_frame_type_bgra, shell);
+	assert(video);
+	const char * uri = "/dev/video0";
+	int width = -1;
+	int height = -1;
+	struct framerate_fraction framerate = { 0 };
+	
+	if(argc > 1) uri = argv[1];
+	if(argc > 2) width = atoi(argv[2]);
+	if(argc > 3) height = atoi(argv[3]);
+	if(argc > 4) framerate.rate = atoi(argv[4]);
+
+	int rc = video->init(video, uri, width, height, (framerate.rate > 0)?&framerate:NULL);
+	assert(0 == rc);
+	
+	video->on_state_changed = on_state_changed;
+	rc = video->play(video);
+	assert(0 == rc);
+	
+	init_windows();
+	return shell_run();
+}
+
+static void on_zoom_in(GtkWidget *button, double *scale_factor)
+{
+	static const double delta = 0.1;
+	if(*scale_factor <= 0) *scale_factor = 1.0;
+	else *scale_factor += delta;
+	
+	struct shell_context *shell = g_shell;
+	char title[100] = "";
+	snprintf(title, sizeof(title) - 1, "scale factor: %g", shell->scale_factor);
+	gtk_header_bar_set_subtitle(GTK_HEADER_BAR(g_shell->header_bar), title);
+}
+static void on_zoom_out(GtkWidget *button, double *scale_factor)
+{
+	static const double delta = 0.1;
+	if(*scale_factor <= 0.2) *scale_factor = 0.1;
+	else *scale_factor -= delta;
+	
+	struct shell_context *shell = g_shell;
+	char title[100] = "";
+	snprintf(title, sizeof(title) - 1, "scale factor: %g", shell->scale_factor);
+	gtk_header_bar_set_subtitle(GTK_HEADER_BAR(g_shell->header_bar), title);
+}
+static void on_zoom_origin(GtkWidget *button, double *scale_factor)
+{
+	struct shell_context *shell = g_shell;
+	*scale_factor = 1.0;
+	char title[100] = "";
+	snprintf(title, sizeof(title) - 1, "scale factor: %g", shell->scale_factor);
+	gtk_header_bar_set_subtitle(GTK_HEADER_BAR(g_shell->header_bar), title);
+}
+
+static void on_play(GtkWidget *button, struct shell_context *shell)
+{
+	struct video_source_common *video = shell->video;
+	video->play(video);
+	
+	
+}
+
+static void on_stop(GtkWidget *button, struct shell_context *shell)
+{
+	struct video_source_common *video = shell->video;
+	video->pause(video);
+}
+
+static void on_uri_changed(GtkEntry *entry, struct shell_context *shell)
+{
+	struct video_source_common *video = shell->video;
+	const char *uri = gtk_entry_get_text(entry);
+	if(uri) {
+		video->stop(video);
+		video->set_uri(video, uri);
+		video->play(video);
+	}
+	return;
+}
+static void on_position_changed(GtkRange *range, struct shell_context *shell)
+{
+	struct video_source_common *video = shell->video;
+	double position = gtk_range_get_value(range);
+	if(video->duration > 0 && position != -1) {
+		video->seek(video, position);
+	}
+	return;
+}
+
+
+static gboolean on_da_draw(GtkWidget *da, cairo_t *cr, struct shell_context *shell);
+static void init_windows()
+{
+	struct shell_context *shell = g_shell;
+	GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+	GtkWidget *header_bar = gtk_header_bar_new();
+	GtkWidget *grid = gtk_grid_new();
+	gtk_window_set_titlebar(GTK_WINDOW(window), header_bar);
+	gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(header_bar), TRUE);
+	gtk_container_add(GTK_CONTAINER(window), grid);
+	gtk_window_set_default_size(GTK_WINDOW(window), 1280, 800);
+	
+	GtkWidget *da = gtk_drawing_area_new();
+	g_signal_connect(da, "draw", G_CALLBACK(on_da_draw), shell);
+	GtkWidget *viewport = gtk_viewport_new(NULL, NULL);
+	GtkWidget *scrolled_win = gtk_scrolled_window_new(NULL, NULL);
+	gtk_container_add(GTK_CONTAINER(viewport), da);
+	gtk_container_add(GTK_CONTAINER(scrolled_win), viewport);
+	gtk_widget_set_size_request(da, 640, 480);
+	gtk_widget_set_hexpand(scrolled_win, TRUE);
+	gtk_widget_set_vexpand(scrolled_win, TRUE);
+	gtk_widget_set_size_request(scrolled_win, 320, 180);
+	gtk_grid_attach(GTK_GRID(grid), scrolled_win, 0, 1, 3, 1);
+	
+	GtkWidget *uri_entry = gtk_search_entry_new();
+	g_signal_connect(uri_entry, "activate", G_CALLBACK(on_uri_changed), shell);
+	gtk_grid_attach(GTK_GRID(grid), uri_entry, 0, 0, 3, 1);
+	
+	GtkWidget *play_btn = gtk_button_new_from_icon_name("media-playback-start", GTK_ICON_SIZE_BUTTON);
+	GtkWidget *stop_btn = gtk_button_new_from_icon_name("media-playback-stop", GTK_ICON_SIZE_BUTTON);
+	GtkWidget *slider = gtk_scale_new(GTK_ORIENTATION_HORIZONTAL, NULL);
+	gtk_widget_set_hexpand(slider, TRUE);
+	gtk_grid_attach(GTK_GRID(grid), play_btn, 0, 2, 1, 1);
+	gtk_grid_attach(GTK_GRID(grid), stop_btn, 1, 2, 1, 1);
+	gtk_grid_attach(GTK_GRID(grid), slider, 2, 2, 1, 1);
+	shell->play_btn = play_btn;
+	shell->stop_btn = stop_btn;
+	
+	g_signal_connect(play_btn, "clicked", G_CALLBACK(on_play), shell);
+	g_signal_connect(stop_btn, "clicked", G_CALLBACK(on_stop), shell);
+	shell->slider_update_handler = g_signal_connect(slider, "value-changed", G_CALLBACK(on_position_changed), shell);
+	
+	GtkWidget *zoom_in = gtk_button_new_from_icon_name("zoom-in", GTK_ICON_SIZE_BUTTON);
+	GtkWidget *zoom_out = gtk_button_new_from_icon_name("zoom-out", GTK_ICON_SIZE_BUTTON);
+	GtkWidget *zoom_origin = gtk_button_new_from_icon_name("zoom-origin", GTK_ICON_SIZE_BUTTON);
+	
+	g_signal_connect(zoom_in, "clicked", G_CALLBACK(on_zoom_in), &shell->scale_factor);
+	g_signal_connect(zoom_out, "clicked", G_CALLBACK(on_zoom_out), &shell->scale_factor);
+	g_signal_connect(zoom_origin, "clicked", G_CALLBACK(on_zoom_origin), &shell->scale_factor);
+	
+	gtk_header_bar_pack_start(GTK_HEADER_BAR(header_bar), zoom_in);
+	gtk_header_bar_pack_start(GTK_HEADER_BAR(header_bar), zoom_out);
+	gtk_header_bar_pack_start(GTK_HEADER_BAR(header_bar), zoom_origin);
+	
+	gtk_widget_show_all(window);
+	
+	shell->window = window;
+	shell->da = da;
+	shell->uri_entry = uri_entry;
+	shell->header_bar = header_bar;
+	shell->slider = slider;
+	
+	g_signal_connect_swapped(window, "destroy", G_CALLBACK(shell_stop), shell);
+	return;
+}
+
+static gboolean on_timeout(struct shell_context *shell)
+{
+	if(shell->quit) {
+		shell->timer_id = 0;
+		return G_SOURCE_REMOVE;
+	}
+	struct video_source_common *video = shell->video;
+	if(NULL == video->pipeline || video->state == -1) return G_SOURCE_CONTINUE;
+	
+	struct video_frame *frame = video->get_frame(video);
+	if(NULL == frame) return G_SOURCE_CONTINUE;
+	
+	if(frame->width > 0 && frame->height > 0 && frame->data) {
+		assert(frame->type == video_frame_type_bgra);
+		
+		cairo_surface_t *surface = shell->da_surface;
+		if(NULL == surface || 
+			frame->width != shell->image_width || frame->height != shell->image_height)
+		{
+			shell->da_surface = NULL;
+			cairo_surface_destroy(surface);
+			surface = cairo_image_surface_create(CAIRO_FORMAT_RGB24, 
+				frame->width, frame->height);
+			assert(surface && cairo_surface_status(surface) == CAIRO_STATUS_SUCCESS);
+			shell->da_surface = surface;
+			shell->image_width = frame->width;
+			shell->image_height = frame->height;
+		}
+		assert(surface);
+		unsigned char *image_data = cairo_image_surface_get_data(surface);
+		memcpy(image_data, frame->data, frame->width * frame->height * 4);
+		cairo_surface_mark_dirty(surface);
+		gtk_widget_queue_draw(shell->da);
+	}
+	video_frame_unref(frame);
+	
+	static long counter = 0;
+	++counter;
+	if((counter % 2) == 0) {
+		GtkAdjustment *adj = gtk_range_get_adjustment(GTK_RANGE(shell->slider));
+		if(video->duration > 0 && shell->duration <= 0) {
+			shell->duration = video->duration;
+			assert(adj);
+			gtk_adjustment_set_upper(adj, video->duration);
+			gtk_adjustment_set_step_increment(adj, 0.5);
+		}
+		
+		if(video->duration > 0) {
+			double position = -1;
+			int rc = video->query_position(video, &position, NULL);
+			if(0 == rc && position != -1) {
+				g_signal_handler_block(shell->slider, shell->slider_update_handler);
+				gtk_adjustment_set_value(adj, position);
+				g_signal_handler_unblock(shell->slider, shell->slider_update_handler);
+			}
+		}
+	}
+
+	return G_SOURCE_CONTINUE;
+}
+static int shell_run()
+{
+	struct shell_context *shell = g_shell;
+	shell->timer_id = g_timeout_add(100, (GSourceFunc)on_timeout, shell);
+	gtk_main();
+	if(shell->timer_id > 0) {
+		g_source_remove(shell->timer_id);
+		shell->timer_id = 0;
+	}
+	return 0;
+}
+static int shell_stop()
+{
+	struct shell_context *shell = g_shell;
+	shell->quit = 1;
+	gtk_main_quit();
+	
+	video_source_common_cleanup(shell->video);
+	return 0;
+}
+
+
+static gboolean on_da_draw(GtkWidget *da, cairo_t *cr, struct shell_context *shell)
+{
+	if(NULL == shell->da_surface || shell->image_width < 1 || shell->image_height < 1) {
+		cairo_set_source_rgba(cr, 0, 0, 0, 1);
+		cairo_paint(cr);
+		return FALSE;
+	}
+	
+	double da_width = gtk_widget_get_allocated_width(da);
+	double da_height = gtk_widget_get_allocated_height(da);
+	double sx = (double)da_width / shell->image_width;
+	double sy = (double)da_height / shell->image_height;
+	double scale_factor = shell->scale_factor;
+	if(scale_factor <= 0) scale_factor = 1;
+	
+	sx *= scale_factor;
+	sy *= scale_factor;
+	cairo_scale(cr, sx, sy);
+	cairo_set_source_surface(cr, shell->da_surface, 0, 0);
+	cairo_paint(cr);
+	
+	return FALSE;
+}
+#endif

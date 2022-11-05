@@ -17,8 +17,8 @@ else
 CFLAGS += -DNDEBUG
 endif
 
-CFLAGS += $(shell pkg-config --cflags gtk+-3.0 gstreamer-1.0 json-c)
-LIBS += $(shell pkg-config --libs  gtk+-3.0 gstreamer-1.0 json-c)
+CFLAGS += $(shell pkg-config --cflags gtk+-3.0 gstreamer-1.0 json-c gstreamer-app-1.0)
+LIBS += $(shell pkg-config --libs  gtk+-3.0 gstreamer-1.0 json-c gstreamer-app-1.0)
 
 
 
@@ -27,7 +27,7 @@ LDFLAGS = $(CFLAGS) $(OPTIMIZE)
 COMMON_DEPS := video_source2.h da_panel.h classes_counter.h
 DEPS = app.h shell.h video_player4/shell_private.c.impl $(wildcard video_player4/*.h)
 
-COMMON_SOURCES := video_source2.c da_panel.c classes_counter.c
+COMMON_SOURCES := video_source2.c da_panel.c classes_counter.c ../utils/video_source_common.c
 COMMON_OBJECTS := $(COMMON_SOURCES:%.c=%.o)
 
 #~ VIDEO_PLAYER4_SOURCES := video-player4.c video_player4/app.c video_player4/shell.c \

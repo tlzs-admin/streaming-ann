@@ -155,7 +155,7 @@ int main(int argc, char **argv)
 	
 	// test dynamic change framerate
 	GstCaps *new_caps = gst_caps_copy(video->caps);
-	GValue frac = {};
+	GValue frac = G_VALUE_INIT;
 	g_value_init(&frac, GST_TYPE_FRACTION);
 	gst_value_set_fraction(&frac, 10, 1);
 	gst_caps_set_value(new_caps, "framerate", &frac);
@@ -169,7 +169,9 @@ int main(int argc, char **argv)
 	video->on_eos = on_eos;
 	
 	assert(video->pipeline);
-	video->play(video);
+	rc = video->play(video);
+	printf("rc=%d\n", rc);
+	assert(0 == rc);
 	video->seek(video, 	80.0);
 	
 	g_timeout_add(1000, (GSourceFunc)watchdog_process, video);

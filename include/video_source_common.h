@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <gst/gst.h>
+#include <pthread.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -33,8 +34,7 @@ enum video_source_subtype
 };
 
 enum video_source_type video_source_type_from_uri(const char * uri, int * p_subtype);
-int get_youtube_embed_uri(const char * youtube_url, char embed_uri[static 4096], size_t size);
-
+ssize_t youtube_uri_parse(const char * youtube_url, char embed_uri[static 4096], size_t size);
 
 struct framerate_fraction
 {
@@ -65,6 +65,7 @@ struct video_frame
 	size_t cb_meta_data;
 };
 struct video_frame *video_frame_new(long frame_number, int width, int height, const void *image_data, size_t length, int take_memory);
+struct video_frame *video_frame_addref(struct video_frame *frame);
 void video_frame_unref(struct video_frame *frame);
 #define video_frame_free(frame) video_frame_unref(frame)
 
@@ -97,6 +98,8 @@ struct video_source_common
 	double duration;  	/* Duration of the video, in seconds */
 	double position;
 	int err_code; // 0: no error, 1: eos, 2: error
+	pthread_mutex_t mutex;
+	struct video_frame *current_frame;
 
 	// public methods
 	int (*init)(struct video_source_common *video, 
