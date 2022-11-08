@@ -28,6 +28,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <math.h>
 
 #include "app.h"
 #include "shell.h"
@@ -513,6 +514,97 @@ static void draw_face_masking(cairo_t *cr, double width, double height,
 	return;
 }
 
+static void draw_leaving_behind(cairo_t *cr, double width, double height,
+	int font_size, 
+	ssize_t num_detections, const struct darknet_detection * dets, 
+	json_object *jcolors, 
+	struct stream_viewer *viewer)
+{
+	struct classes_counter_context * counters = viewer->counter_ctx;
+	counters->reset(counters);
+	struct area_settings_dialog * settings = viewer->settings_dlg;
+	
+	int alert_flags = 0;
+	for(ssize_t i = 0; i < num_detections; ++i) {
+		gboolean color_parsed = FALSE;
+		GdkRGBA fg_color;
+		if(dets[i].class_id != 0) continue;
+		
+		const char *class_name = dets[i].class_name;
+		const char *color_name = NULL;
+		if(NULL == class_name) continue;
+		
+		double x = dets[i].x * width;
+		double y = dets[i].y * height;
+		double cx = dets[i].cx * width;
+		double cy = dets[i].cy * height;
+		
+		double center_x = dets[i].x + dets[i].cx / 2;
+		double bottom_y = dets[i].y + dets[i].cy * 0.99;
+		
+		struct class_counter *counter = NULL;
+		int area_index = -1;
+		if(settings->num_areas > 0 && settings->areas[0].num_vertexes >= 3) {
+			
+			
+			area_index = settings->pt_in_area(settings, center_x, bottom_y);
+			if(area_index < 0) {
+				area_index = settings->pt_in_area(settings, dets[i].x + 1, bottom_y); // check left pos
+			}
+			if(area_index < 0) {
+				area_index = settings->pt_in_area(settings, dets[i].x + dets[i].cx - 1, bottom_y); // check right pos
+			}
+			
+			if(area_index >= 0) {
+				counter = counters->add_by_id(counters, dets[i].class_id);
+				alert_flags = 1;
+			}
+		}else {
+			counter = counters->add_by_id(counters, dets[i].class_id);
+			alert_flags = 1;
+		}
+		if(counter) strncpy(counter->name, class_name, sizeof(counter->name));
+		
+		if(jcolors) {
+			json_object *jcolor = NULL;
+			json_bool ok = json_object_object_get_ex(jcolors, class_name, &jcolor);
+			if(ok && jcolor) color_name = json_object_get_string(jcolor);
+			if(color_name) color_parsed = gdk_rgba_parse(&fg_color, color_name);
+		}
+		if(!color_parsed) gdk_rgba_parse(&fg_color, "green"); // default color
+		
+		// draw bounding box
+		cairo_set_source_rgb(cr, fg_color.red, fg_color.green, fg_color.blue);
+		cairo_rectangle(cr, x, y, cx, cy);
+		cairo_stroke(cr);
+		
+		// draw detection points
+		const double radius = cy / 120.0;
+		cairo_set_source_rgb(cr, 1, 1, 0);
+		cairo_set_line_width(cr, 2);
+		cairo_arc(cr, x, bottom_y * height, radius, 0, M_PI * 2);
+		cairo_stroke(cr);
+		
+		cairo_arc(cr, x + cx, bottom_y * height, radius, 0, M_PI * 2);
+		cairo_stroke(cr);
+		
+		cairo_arc(cr, center_x * width, bottom_y *height, radius, 0, M_PI * 2);
+		cairo_stroke(cr);
+		
+		show_text(cr, x, y, font_size, _(class_name), &fg_color, NULL, -1);
+	}
+	
+	if(alert_flags) {
+		cairo_rectangle(cr, 0, 0, width, height);
+		cairo_set_source_rgba(cr, 1, 0, 0, 0.2);
+		cairo_paint(cr);
+		
+		cairo_set_source_rgba(cr, 1, 0, 0, 1);
+		cairo_set_line_width(cr, height / 20);
+		cairo_stroke(cr);
+	}
+}
+
 static void draw_ai_result(cairo_surface_t *surface, json_object *jresult, json_object *jcolors, struct stream_viewer *viewer)
 {
 	assert(surface);
@@ -544,9 +636,12 @@ static void draw_ai_result(cairo_surface_t *surface, json_object *jresult, json_
 	
 	struct video_stream *stream = viewer->stream;
 	assert(stream);
-	if(!stream->face_masking_flag) draw_bounding_boxes(cr, width, height, font_size, 
-		num_detections, dets, jcolors, viewer);
-	else {
+	if(stream->detection_mode == 1) { //
+		draw_leaving_behind(cr, width, height, font_size, num_detections, dets, jcolors, viewer);
+	}else if(!stream->face_masking_flag) {
+		draw_bounding_boxes(cr, width, height, font_size, 
+			num_detections, dets, jcolors, viewer);
+	}else {
 		debug_printf("jresult(+faces): %s\n", json_object_to_json_string_ext(jresult, JSON_C_TO_STRING_PRETTY));
 		json_object * jfaces = NULL;
 		ok = json_object_object_get_ex(jresult, "faces", &jfaces);

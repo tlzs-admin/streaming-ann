@@ -40,6 +40,7 @@
 			"ai-engines": [ {"id": 1, "enabled": 1}, ],
 			"show_toolsbar": 0,
 			"keep_ratio": 1,
+			"detection_mode": 1,
 		},
 		{
 			"input": {

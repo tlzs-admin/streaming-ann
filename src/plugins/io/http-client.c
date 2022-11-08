@@ -44,6 +44,8 @@ typedef int SOCKET;
 #include "input-frame.h"
 #include "auto-buffer.h"
 
+#include "base64.h"
+
 
 #define ANN_PLUGIN_TYPE_STRING "io-plugin::httpclient"
 

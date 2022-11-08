@@ -32,6 +32,8 @@
 #include <libsoup/soup.h>
 
 #include "utils.h"
+#include "base64.h"
+
 #include "io-input.h"
 #include "input-frame.h"
 #include "auto-buffer.h"

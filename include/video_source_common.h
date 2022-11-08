@@ -46,7 +46,7 @@ enum video_frame_type
 {
 	video_frame_type_unknown = 0,
 	video_frame_type_bgra = 1,
-	video_frame_type_jpeg = 2,
+	video_frame_type_jpeg = 2, // input_frame_type_jpeg
 	VIDEO_FRAME_TYPES_COUNT
 };
 
@@ -105,7 +105,7 @@ struct video_source_common
 	int (*init)(struct video_source_common *video, 
 		const char *uri,
 		int width, int height, const struct framerate_fraction *framerate);
-
+	int (*init_command)(struct video_source_common *video, const char *gst_command);
 	struct video_frame *(*get_frame)(struct video_source_common * video);
 	
 	

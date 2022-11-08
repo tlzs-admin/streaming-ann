@@ -26,7 +26,7 @@ TARGETS=(
 )
 
 CC="gcc -std=gnu99 -D_GNU_SOURCE "
-CFLAGS="-Wall -Iinclude"
+CFLAGS="-Wall -Iinclude -Iutils "
 
 if [ ! -z "${DEBUG}"  ]; then
 CFLAGS+=" -g -D_DEBUG "
@@ -53,7 +53,7 @@ function build()
 				${CFLAGS}	\
 				utils/*.c \
 				-lm -lpthread -ljpeg -lpng \
-				`pkg-config --cflags --libs gstreamer-1.0 gio-2.0 glib-2.0 cairo json-c` 
+				`pkg-config --cflags --libs gstreamer-1.0 gio-2.0 glib-2.0 cairo json-c gstreamer-app-1.0` 
 			;;
 		tcp-server)
 			echo "make libioplugin-tcpd ..."
@@ -68,15 +68,15 @@ function build()
 				http-server.c \
 				utils/*.c \
 				-lpthread -lm ${CFLAGS} -ljpeg -lpng \
-				`pkg-config --cflags --libs json-c libsoup-2.4 gio-2.0 glib-2.0 cairo`
+				`pkg-config --cflags --libs json-c libsoup-2.4 gio-2.0 glib-2.0 cairo gstreamer-app-1.0`
 			;;
 		http-client)
 			echo "make libioplugin-httpcient ..."
-			${CC} -fPIC -shared -o plugins/libioplugin-httpclient.so \
+			${CC} ${CFLAGS} -fPIC -shared -o plugins/libioplugin-httpclient.so \
 				http-client.c \
 				utils/*.c \
 				-lpthread -lm -ljson-c  -Iinclude -ljpeg -lpng \
-				`pkg-config --cflags --libs gio-2.0 glib-2.0 libcurl cairo` 
+				`pkg-config --cflags --libs gio-2.0 glib-2.0 libcurl cairo gstreamer-app-1.0` 
 			;;
 
 		*)

@@ -33,22 +33,36 @@
 #include "video_streams.h"
 
 
-static long video_stream_get_frame(struct video_stream *stream, long prev_frame, input_frame_t *frame)
+static long video_stream_get_frame(struct video_stream *stream, long prev_frame, input_frame_t *input)
 {
 	pthread_rwlock_rdlock(&stream->rwlock);
-	if(stream->frame_number > prev_frame) {
+	if(stream->frame_number <= prev_frame) {
+		pthread_rwlock_unlock(&stream->rwlock);
+		return stream->frame_number;
+	}
 
-		input_frame_t * current = stream->frame_buffer[0];
-		if(NULL == current) {
-			pthread_rwlock_unlock(&stream->rwlock);
-			return -1;
-		}
-		
-		input_frame_set_bgra(frame, current->bgra, NULL, 0);
-		json_object *jresults = current->meta_data;
-		if(jresults) frame->meta_data = json_object_get(jresults); // add_ref
+	struct video_frame *frame = stream->frame_buffer[0];
+	if(NULL == frame) {
+		pthread_rwlock_unlock(&stream->rwlock);
+		return stream->frame_number;
 	}
 	
+	input->type = frame->type;
+	
+	input->data = NULL;
+	if(frame->data && frame->length > 0)
+	{
+		input->data = malloc(frame->length);
+		memcpy(input->data, frame->data, frame->length);
+	}
+	input->length = frame->length;
+	input->width = frame->width;
+	input->height = frame->height;
+	
+	json_object *jresults = frame->meta_data;
+	if(jresults) input->meta_data = json_object_get(jresults); // add_ref
+	
+	stream->frame_number = frame->frame_number;
 	prev_frame = stream->frame_number;
 	pthread_rwlock_unlock(&stream->rwlock);
 	return prev_frame;
@@ -57,7 +71,7 @@ static long video_stream_get_frame(struct video_stream *stream, long prev_frame,
 static void swap_frame_buffer(struct video_stream *stream)
 {
 	pthread_rwlock_wrlock(&stream->rwlock);
-	input_frame_t * frame = stream->frame_buffer[0];
+	struct video_frame * frame = stream->frame_buffer[0];
 	stream->frame_buffer[0] = stream->frame_buffer[1];
 	stream->frame_buffer[1] = frame;
 	pthread_rwlock_unlock(&stream->rwlock);
@@ -83,25 +97,26 @@ static void * video_stream_thread(void *user_data)
 		}
 		
 		int sleep_flags = 1;
-		struct video_source2 *video = stream->video;
-		input_frame_t *frame = stream->frame_buffer[1];
-		if(NULL == frame) {
-			frame = stream->frame_buffer[1] = input_frame_new();
+		video_source_t *video = stream->video;
+		struct video_frame *frame = stream->frame_buffer[1];
+		stream->frame_buffer[1] = NULL;
+		if(frame) {
+			// clear frame
+			if(frame->meta_data) {
+				json_object_put((json_object *)frame->meta_data);
+				frame->meta_data = NULL;
+			}
+			video_frame_unref(frame);
 		}
-		
-		// clear frame
-		if(frame->meta_data) {
-			json_object_put((json_object *)frame->meta_data);
-			frame->meta_data = NULL;
-		}
-		input_frame_clear(frame);
-		long frame_number = video->get_frame(video, stream->frame_number, frame);
-		if(frame_number <= stream->frame_number) {
+		frame = video->get_frame(video);
+		if(NULL == frame || NULL == frame->data || stream->frame_number >= frame->frame_number) {
+			if(frame) video_frame_unref(frame);
 			nanosleep(&interval, NULL);
 			continue;
 		}
-		stream->frame_number = frame_number;
-	//	debug_printf("cur_frame: %ld\n", frame_number);
+		stream->frame_buffer[1] = frame;
+		stream->frame_number = frame->frame_number;
+
 		if(stream->ai_enabled && stream->num_ai_engines > 0) {
 			printf("num_ai_engines: %d\n", stream->num_ai_engines);
 			
@@ -110,32 +125,28 @@ static void * video_stream_thread(void *user_data)
 			struct ai_context *ai = &stream->ai_engines[0];
 			if(ai->quit) break;
 			
+			input_frame_t input[1];
+			memset(input, 0, sizeof(input));
+			input->type = frame->type;
+			input->data = frame->data;
+			input->length = frame->length;
+			input->width = frame->width;
+			input->height = frame->height;
+			
 			if(ai->enabled) {
 				
 				pthread_mutex_lock(&ai->mutex);
-				rc = ai->engine->predict(ai->engine, frame, &jresult);
+				rc = ai->engine->predict(ai->engine, input, &jresult);
 				pthread_mutex_unlock(&ai->mutex);
 				if(jresult) {
 					frame->meta_data = jresult;	
 					sleep_flags = 0;
 				}
-				
-				//~ json_object *jresults = json_object_new_array();
-				//~ for(int i = 0; i < stream->num_ai_engines; ++i) {
-					//~ struct ai_context *ai = &stream->ai_engines[i];
-					//~ if(!ai->enabled) continue;
-					
-					//~ char id[100] = "";
-					//~ snprintf(id, sizeof(id), "id_%d", (ai->id>0)?ai->id:(i+1)); 
-					//~ json_object *jresult = NULL;
-					//~ rc = ai->engine->predict(ai->engine, frame, &jresult);
-					//~ json_object_array_add(jresults, jresult?jresult:json_object_new_null());
-				//~ }
 			}
 			if(stream->face_masking_flag && stream->cv_face) {
 				ai_engine_t *dnn_face = stream->cv_face;
 				json_object *jface_dets = NULL;
-				rc = dnn_face->predict(dnn_face, frame, &jface_dets);
+				rc = dnn_face->predict(dnn_face, input, &jface_dets);
 				if(jface_dets) {
 					json_object *jfaces = NULL;
 					json_bool ok = json_object_object_get_ex(jface_dets, "detections", &jfaces);
@@ -178,9 +189,8 @@ static int video_stream_stop(struct video_stream *stream)
 	pthread_mutex_lock(&stream->cond_mutex.mutex);
 	
 	stream->quit = 1;
-	
-	struct video_source2 *video = stream->video;
-	if(video && video->is_running) video->stop(video);
+	video_source_t *video = stream->video;
+	video->stop(video);
 	
 	pthread_mutex_unlock(&stream->cond_mutex.mutex);
 	return 0;
@@ -213,16 +223,18 @@ static int video_stream_load_config(struct video_stream *stream, json_object *js
 	int width = json_get_value_default(jinput, int, width, default_width);
 	int height = json_get_value_default(jinput, int, height, default_height);
 	const char * uri = json_get_value(jinput, string, uri);
-	struct video_source2 *video = video_source2_init(NULL, app);
+	video_source_t *video = video_source_common_init(NULL, video_frame_type_bgra, app);
 	assert(video);
-	int rc = video->set_uri2(video, uri, width, height);
-	fprintf(stderr, "== %s(): set_uri2(%s) = %d\n", __FUNCTION__, uri, rc);
-	
+	int rc = video->init(video, uri, width, height, NULL);
+	fprintf(stderr, "== %s(): video->init(%s) = %d\n", __FUNCTION__, uri, rc);
+	// assert(0 == rc);
+	video->play(video);
 	
 	stream->video = video;
 	stream->image_width = width;
 	stream->image_height = height;
 	stream->ai_enabled = json_get_value(jinput, int, ai_enabled);
+	stream->detection_mode = json_get_value(jstream, int, detection_mode);
 	
 	int num_ai_engines = 0;
 	ok = json_object_object_get_ex(jstream, "ai-engines", &jai_engines);

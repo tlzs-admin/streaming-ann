@@ -24,7 +24,7 @@
  * IN THE SOFTWARE.
  * 
  */
-
+#if 0
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,6 +43,8 @@
 #include <gst/gst.h>
 
 #include "utils.h"
+
+
 
 #define PROTOCOL_rtsp       "rtsp://"
 #define PROTOCOL_rtspt      "rtspt://"
@@ -472,3 +474,4 @@ static int video_source2_set_volume(struct video_source2 * video, double volume)
 	return 0;
 }
 
+#endif

@@ -14,6 +14,7 @@ extern "C" {
 #include "app.h"
 
 #include "cv-wrapper.h"
+#include "video_source_common.h"
 
 
 struct video_stream
@@ -28,7 +29,7 @@ struct video_stream
 	int (*pause)(struct video_stream *stream);
 	int (*stop)(struct video_stream *stream);
 
-	struct video_source2 *video;
+	video_source_t *video;
 	int image_width;
 	int image_height;
 	
@@ -39,7 +40,7 @@ struct video_stream
 	pthread_rwlock_t rwlock;
 	int paused;
 	long frame_number;
-	input_frame_t * frame_buffer[2];	// double buffer
+	struct video_frame * frame_buffer[2];	// double buffer
 	
 	pthread_t th;
 	struct {
@@ -49,6 +50,7 @@ struct video_stream
 	
 	struct ai_engine *cv_face;
 	int face_masking_flag;
+	int detection_mode;
 	
 };
 

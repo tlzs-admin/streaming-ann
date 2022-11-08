@@ -235,6 +235,7 @@ static int video_set_resolution(struct video_source_common *video, int width, in
 static int video_set_framerate(struct video_source_common *video, int rate, int denominator);
 
 static int video_init(struct video_source_common *video, const char *uri, int width, int height, const struct framerate_fraction *framerate);
+static int video_init_command(struct video_source_common *video, const char *gst_command);
 static struct video_frame * video_get_frame(struct video_source_common * video);
 static int video_play(struct video_source_common * video);
 static int video_pause(struct video_source_common * video);
@@ -260,6 +261,7 @@ struct video_source_common *video_source_common_init(struct video_source_common 
 	video->frame_type = frame_type;
 	
 	video->init = video_init;
+	video->init_command = video_init_command;
 	video->set_uri = video_set_uri;
 	video->set_resolution = video_set_resolution;
 	video->set_framerate = video_set_framerate;
@@ -528,15 +530,8 @@ static gboolean on_pipeline_state_changed(GstBus *bus, GstMessage *message, stru
 	return TRUE;
 }
 
-
-
 static int relaunch_pipeline(struct video_source_common *video)
 {
-	if(!video->uri[0]) {
-		fprintf(stderr, "invalid uri\n");
-		return -1;
-	}
-	
 	GstElement *pipeline = video->pipeline;
 	if(pipeline) {
 		printf("release old pipeline");
@@ -544,28 +539,6 @@ static int relaunch_pipeline(struct video_source_common *video)
 		gst_object_unref(video->pipeline);
 		video->pipeline = NULL;
 	}
-	
-	debug_printf("uri: %s", video->uri);
-	enum video_source_type type;
-	int subtype = 0;
-	type = video_source_type_from_uri(video->uri, &subtype);
-	if(type == video_source_type_unknown || type >= video_source_types_count) {
-		fprintf(stderr, "[ERROR]::invalid uri: %s\n", video->uri);
-		return -1;
-	}
-	
-	if(type == video_source_type_https && subtype == video_source_subtype_youtube) {
-		ssize_t cb = youtube_uri_parse(video->uri, video->uri, sizeof(video->uri) - 1);
-		if(cb <= 0) {
-			fprintf(stderr, "[ERROR]::parse youtube uri failed. uri = %s\n", video->uri);
-			return -1;
-		}
-	}
-	
-	if(0 != make_launch_command(video->gst_command, sizeof(video->gst_command),
-		type, 
-		video->uri, video->frame_type, 
-		video->width, video->height, video->framerate)) return -1;
 	
 	GError *gerr = NULL;
 	pipeline = gst_parse_launch(video->gst_command, &gerr);
@@ -591,7 +564,7 @@ static int relaunch_pipeline(struct video_source_common *video)
 		.new_sample = on_app_sink_new_sample,
 	};
 	gst_app_sink_set_callbacks(sink, &callbacks, video, NULL);
-	video->pipeline = pipeline;
+	
 	
 	GstBus *bus = gst_pipeline_get_bus(GST_PIPELINE(pipeline));
 	assert(bus);
@@ -601,27 +574,79 @@ static int relaunch_pipeline(struct video_source_common *video)
 	g_signal_connect(bus, "message::state-changed", G_CALLBACK(on_pipeline_state_changed), video);
 	gst_object_unref(bus);
 	
-	gst_element_set_state(video->pipeline, GST_STATE_READY);
+	
+	video->pipeline = pipeline;
+	gst_element_set_state(pipeline, GST_STATE_READY);
 	return 0;
 }
 
 static int video_init(struct video_source_common *video, const char *uri, int width, int height, const struct framerate_fraction *framerate)
 {
+	pthread_mutex_lock(&video->mutex);
 	if(uri) video->set_uri(video, uri);
 	video->set_resolution(video, width, height);
 	if(framerate) video->set_framerate(video, framerate->rate, framerate->denominator);
-	
-	pthread_mutex_lock(&video->mutex);
-	video->state = -1;
-	video->frame_number = -1;
-	video->begin_ticks_ms = 0;
-	video->begin_timestamp_ms = 0;
-	if(video->current_frame) {
-		video_frame_unref(video->current_frame);
-		video->current_frame = NULL;
+		
+	if(video->settings_changed) {
+		video->state = -1;
+		video->frame_number = -1;
+		video->begin_ticks_ms = 0;
+		video->begin_timestamp_ms = 0;
+		if(video->current_frame) {
+			video_frame_unref(video->current_frame);
+			video->current_frame = NULL;
+		}
+		video->settings_changed = 0;
 	}
+	
+	if(!video->uri[0]) {
+		fprintf(stderr, "invalid uri\n");
+		pthread_mutex_unlock(&video->mutex);
+		return -1;
+	}
+	
+	debug_printf("uri: %s", video->uri);
+	enum video_source_type type;
+	int subtype = 0;
+	type = video_source_type_from_uri(video->uri, &subtype);
+	if(type == video_source_type_unknown || type >= video_source_types_count) {
+		fprintf(stderr, "[ERROR]::invalid uri: %s\n", video->uri);
+		pthread_mutex_unlock(&video->mutex);
+		return -1;
+	}
+	
+	if(type == video_source_type_https && subtype == video_source_subtype_youtube) {
+		ssize_t cb = youtube_uri_parse(video->uri, video->uri, sizeof(video->uri) - 1);
+		if(cb <= 0) {
+			fprintf(stderr, "[ERROR]::parse youtube uri failed. uri = %s\n", video->uri);
+			pthread_mutex_unlock(&video->mutex);
+			return -1;
+		}
+	}
+	
+	int rc = make_launch_command(video->gst_command, sizeof(video->gst_command), type, 
+		video->uri, video->frame_type, 
+		video->width, video->height, video->framerate);
+	if(rc) {
+		pthread_mutex_unlock(&video->mutex);
+		return -1;
+	}
+	
+	rc = relaunch_pipeline(video);
 	pthread_mutex_unlock(&video->mutex);
-	return relaunch_pipeline(video);
+	return rc;
+}
+
+static int video_init_command(struct video_source_common *video, const char *gst_command)
+{
+	int rc = 0;
+	pthread_mutex_lock(&video->mutex);
+	if(gst_command && gst_command != video->gst_command) {
+		strncpy(video->gst_command, gst_command, sizeof(video->gst_command) - 1);
+	}
+	rc = relaunch_pipeline(video);
+	pthread_mutex_unlock(&video->mutex);
+	return rc;
 }
 
 static struct video_frame * video_get_frame(struct video_source_common * video)

@@ -5,17 +5,14 @@ TARGETS += lib/libioproxy-tcpd.so.1
 TARGETS += lib/libioproxy-httpclient.so.1
 TARGETS += lib/libioproxy-default.so.1
 
-
-
-
 CC=gcc -std=gnu99 -D_GNU_SOURCE
 LINKER=gcc -std=gnu99 -D_GNU_SOURCE
 
-CFLAGS = -Iinclude -g -Wall -D_DEBUG
-CFLAGS += $(shell pkg-config --cflags libsoup-2.4 gstreamer-1.0)
+CFLAGS = -Iinclude -Iutils -g -Wall -D_DEBUG
+CFLAGS += $(shell pkg-config --cflags libsoup-2.4 gstreamer-1.0 gstreamer-app-1.0)
 
 LIBS = -lm -lpthread -ljpeg -lpng -lcairo
-
+CFLAGS += $(shell pkg-config --libs libsoup-2.4 gstreamer-1.0 gstreamer-app-1.0)
 
 OS=$(shell uname -s)
 

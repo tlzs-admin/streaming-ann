@@ -32,9 +32,9 @@ endif
 SOURCES := $(wildcard src/*.c)
 OBJECTS := $(SOURCES:src/%.c=obj/%.o)
 
-UTILS_CFLAGS = $(CFLAGS) `pkg-config --cflags gio-2.0 glib-2.0`
+UTILS_CFLAGS = $(CFLAGS) $(shell pkg-config --cflags gio-2.0 glib-2.0 gstreamer-app-1.0)
 UTILS_LDFLAGS = $(UTILS_CFLAGS)
-UTILS_LIBS = -lm -lpthread -ljson-c -ljpeg -lpng -lcairo -ldl `pkg-config --libs gio-2.0 glib-2.0` 
+UTILS_LIBS = -lm -lpthread -ljson-c -ljpeg -lpng -lcairo -ldl $(shell pkg-config --libs gio-2.0 glib-2.0 gstreamer-app-1.0)
 
 UTILS_SOURCES := $(wildcard utils/*.c)
 UTILS_OBJECTS := $(UTILS_SOURCES:utils/%.c=obj/utils/%.o)
