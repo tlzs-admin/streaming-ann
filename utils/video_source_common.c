@@ -403,9 +403,7 @@ static inline int make_launch_command(char command[static 8192], size_t size,
 static void on_app_sink_eos(GstAppSink *sink, gpointer user_data)
 {
 	debug_printf("%s()...", __FUNCTION__);
-	struct video_source_common *video = user_data;
-	assert(video);
-	if(video->on_eos) video->on_eos(video, video->user_data);
+	return;
 }
 
 
@@ -422,11 +420,15 @@ GstFlowReturn on_app_sink_new_preroll(GstAppSink *sink, gpointer user_data)
 	gint64 duration = 0;
 	gint64 position = 0;
 	
-	gst_element_query_duration(video->pipeline, GST_FORMAT_TIME, &duration);
-	gst_element_query_position(video->pipeline, GST_FORMAT_TIME, &position);
+	if(gst_element_query_duration(video->pipeline, GST_FORMAT_TIME, &duration))
+	{
+		video->duration = (double)duration / GST_SECOND;
+	}
 	
-	video->duration = (double)duration / GST_SECOND;
-	video->position = (double)position / GST_SECOND;
+	if(gst_element_query_position(video->pipeline, GST_FORMAT_TIME, &position))
+	{
+		video->position = (double)position / GST_SECOND;
+	}
 	
 	printf("\e[32m" "duration: %.3f s, position = %.3f s\n",
 		video->duration,
@@ -487,6 +489,8 @@ static gboolean on_pipeline_eos(GstBus *bus, GstMessage *message, struct video_s
 {
 	debug_printf("%s() ...", __FUNCTION__);
 	video->err_code = 1;
+	if(video->on_eos) video->on_eos(video, video->user_data);
+	
 	return TRUE;
 }
 static gboolean on_pipeline_error(GstBus *bus, GstMessage *message, struct video_source_common *video)
@@ -681,6 +685,10 @@ static int video_play(struct video_source_common * video)
 		video->state = state;
 	}
 	if(video->state != GST_STATE_PLAYING) return -1;
+	
+	int64_t value = 0;
+	if(!gst_element_query_duration(video->pipeline, GST_FORMAT_TIME, &value)) return -1;
+	video->duration = (double)value / GST_SECOND;
 	return 0;
 }
 static int video_pause(struct video_source_common * video)
@@ -742,6 +750,7 @@ static int video_query_position(struct video_source_common *video, double *posit
 	if(duration) {
 		if(!gst_element_query_duration(video->pipeline, GST_FORMAT_TIME, &value)) return -1;
 		*duration = (double)value / GST_SECOND;
+		video->duration = *duration;
 	}
 	return 0;
 }

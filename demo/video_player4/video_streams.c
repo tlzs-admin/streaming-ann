@@ -98,6 +98,12 @@ static void * video_stream_thread(void *user_data)
 		
 		int sleep_flags = 1;
 		video_source_t *video = stream->video;
+		if(NULL == video->pipeline || video->state < GST_STATE_PLAYING)
+		{
+			nanosleep(&interval, NULL);
+			continue;
+		}
+		
 		struct video_frame *frame = stream->frame_buffer[1];
 		stream->frame_buffer[1] = NULL;
 		if(frame) {

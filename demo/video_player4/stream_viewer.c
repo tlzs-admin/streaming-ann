@@ -60,6 +60,7 @@ static int on_eos(video_source_t * video, void * user_data)
 	assert(viewer->stream->video == video);
 	
 	// auto restart 
+	debug_printf("%s()...\n", __FUNCTION__);
 	on_uri_changed(NULL, viewer);
 	
 	return 0;
@@ -86,14 +87,17 @@ static void on_uri_changed(GtkWidget * widget, struct stream_viewer *viewer)
 		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(viewer->play_pause_button), TRUE);
 		
 		stream->pause(stream);
-		video->stop(video);
+		video->pause(video);
 		stream->frame_number = 0;
 		
 		// clear counters
 		struct classes_counter_context * counters = viewer->counter_ctx;
 		if(counters && counters->clear_all) counters->clear_all(counters);
 		
+		video->state = 0;
+		video->settings_changed = 1;
 		int rc = video->init(video, uri, stream->image_width, stream->image_height, NULL);
+		
 		video->user_data = viewer;
 		video->on_state_changed = on_video_status_changed;
 		video->on_eos = on_eos;
@@ -379,8 +383,11 @@ gboolean stream_viewer_update_ui(struct stream_viewer * viewer)
 	if(video->state < GST_STATE_PAUSED) return TRUE;
 	if(video->state <= 0) return  TRUE;
 	
+	printf("video->duration: %g\n", video->duration);
+	
 	video->query_position(video, &video->position, NULL);
 	g_signal_handler_block(viewer->slider, viewer->slider_update_handler);
+	gtk_range_set_range(GTK_RANGE(viewer->slider), 0, video->duration);
 	gtk_range_set_value(GTK_RANGE(viewer->slider), video->position);
 	g_signal_handler_unblock(viewer->slider, viewer->slider_update_handler);
 	
@@ -397,6 +404,8 @@ static int on_video_status_changed(video_source_t * video, GstState old_state, G
 	stream_viewer_update_ui(user_data);
 	gboolean pause_mode = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(viewer->play_pause_button));
 	if(pause_mode && new_state == GST_STATE_PLAYING) {
+		gtk_range_set_range(GTK_RANGE(viewer->slider), 0, video->duration);
+		
 		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(viewer->play_pause_button), FALSE);
 	}
 

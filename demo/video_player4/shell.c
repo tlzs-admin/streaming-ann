@@ -740,10 +740,13 @@ static gboolean on_timeout(struct shell_context *shell)
 	struct video_stream *streams = NULL;
 	ssize_t num_streams = app_get_streams(app, &streams);
 	for(int i = 0; i < num_streams; ++i) {
+		struct video_stream *stream = &streams[i];
+		if(stream->paused) continue;
+		
 		input_frame_t frame[1];
 		memset(frame, 0, sizeof(frame));
 		
-		long frame_number = streams[i].get_frame(&streams[i], 0, frame);
+		long frame_number = stream->get_frame(stream, 0, frame);
 		if(frame_number <= 0) continue;
 		
 		da_panel_t *panel = priv->views[i].panel;

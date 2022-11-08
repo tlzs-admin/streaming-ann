@@ -215,7 +215,7 @@ static int init_windows(struct shell_context *shell)
 	for(int i = 0; i < num_streams; ++i) {
 		struct stream_viewer * view = &priv->views[i];
 		json_object *jstream = json_object_array_get_idx(jstreams, i);
-		gboolean state = json_get_value(jstream, int, show_toolbar);
+		gboolean state = json_get_value(jstream, int, show_toolsbar);
 		gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(view->show_toolbars_menu), state);
 		gtk_widget_set_visible(view->hbox[0], state);
 		gtk_widget_set_visible(view->hbox[1], state);
