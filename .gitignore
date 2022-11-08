@@ -69,3 +69,6 @@ backup/
 
 !motion-jpeg
 !motion-jpeg/*
+
+!widgets
+!widgets/*
