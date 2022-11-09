@@ -264,6 +264,11 @@ GtkWidget * create_options_menu(struct stream_viewer * viewer)
 	gtk_menu_shell_append(GTK_MENU_SHELL(view_submenu), show_counters_menu);
 	g_signal_connect(show_counters_menu, "toggled", G_CALLBACK(on_check_menu_toggled_int_value), &viewer->show_counters);
 	
+	GtkWidget * counter_mode2 = gtk_check_menu_item_new_with_label(_("Large Mode"));
+	gtk_menu_shell_append(GTK_MENU_SHELL(view_submenu), counter_mode2);
+	//~ gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(counter_mode2), FALSE);
+	g_signal_connect(counter_mode2, "toggled", G_CALLBACK(on_check_menu_toggled_int_value), &viewer->show_counters_mode2);
+	
 	GtkWidget * show_toolbars_menu = gtk_check_menu_item_new_with_label(_("Show toolbars"));
 	gtk_menu_shell_append(GTK_MENU_SHELL(view_submenu), show_toolbars_menu);
 	gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(show_toolbars_menu), TRUE);

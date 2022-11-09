@@ -241,7 +241,9 @@ static int calc_text_width(cairo_t *cr, int num_classes, char ** text_lines)
 	return max_width;
 }
 
-static void draw_counters(cairo_t *cr, const int font_size, json_object *jcolors, struct stream_viewer *viewer)
+static void draw_counters(cairo_t *cr, const int font_size, json_object *jcolors, 
+	double width, double height,
+	struct stream_viewer *viewer)
 {
 	struct classes_counter_context * counters = viewer->counter_ctx;
 	int num_classes = counters->num_classes;
@@ -256,9 +258,14 @@ static void draw_counters(cairo_t *cr, const int font_size, json_object *jcolors
 	
 	char ** text_lines = calloc(num_classes, sizeof(*text_lines));
 	assert(text_lines);
+	
+	long persons_count = -1;
 	for(int i = 0; i < num_classes; ++i) {
 		text_lines[i] = calloc(max_line_size, 1);
 		assert(text_lines[i]);
+		if(counters->classes[i].id == 0) {
+			persons_count = counters->classes[i].count;
+		}
 		snprintf(text_lines[i], max_line_size, "%s: %d", _(counters->classes[i].name),  (int)counters->classes[i].count);
 	}
 
@@ -266,6 +273,8 @@ static void draw_counters(cairo_t *cr, const int font_size, json_object *jcolors
 	
 	struct video_stream *stream = viewer->stream;
 	assert(stream);
+	
+	
 	for(int i = 0; i < num_classes; ++i) {
 		gboolean color_parsed = FALSE;
 		GdkRGBA fg_color;
@@ -290,6 +299,28 @@ static void draw_counters(cairo_t *cr, const int font_size, json_object *jcolors
 	
 	for(int i = 0; i < num_classes; ++i) { free(text_lines[i]); }
 	free(text_lines);
+	
+	
+	if(persons_count > 0 && viewer->show_counters_mode2) {
+		char text[100] = "";
+		snprintf(text, sizeof(text), "%ld 人", persons_count);
+		
+		cairo_select_font_face(cr, "IPAGothic", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+		cairo_set_line_width(cr, 10);
+		cairo_set_font_size(cr, height / 3);
+		
+		cairo_set_source_rgba(cr, 0.2, 0.2, 0.2, 0.3);
+		cairo_rectangle(cr, width / 30, height / 30, width - width / 30, height - height / 30);
+		cairo_fill(cr);
+		
+		cairo_set_source_rgba(cr, 1, 1, 0, 0.8);
+		cairo_text_extents_t extents;
+		memset(&extents, 0, sizeof(extents));
+		cairo_text_extents(cr, text, &extents);
+		
+		cairo_move_to(cr, x + (width - extents.width) / 2, y + height  / 2 + extents.height / 2);
+		cairo_show_text(cr, text);
+	}
 	return;
 }
 
@@ -656,7 +687,7 @@ static void draw_ai_result(cairo_surface_t *surface, json_object *jresult, json_
 			jcolors, viewer);
 	}
 	
-	if(viewer->show_counters) draw_counters(cr, font_size, jcolors, viewer);
+	if(viewer->show_counters) draw_counters(cr, font_size, jcolors, width, height, viewer);
 	cairo_destroy(cr);
 	return;
 }

@@ -31,6 +31,7 @@
 
 #include <stdint.h>
 #include <time.h>
+#include <ctype.h>
 
 #include <gtk/gtk.h>
 #include "time_spin_widget.h"
@@ -98,9 +99,7 @@ static gboolean on_updown_arrow_clicked(GtkWidget *eventbox, GdkEventButton *eve
 static gboolean on_spin_entry_scroll(GtkWidget *entry, GdkEventScroll *event, void *user_data)
 {
 	if(event->type != GDK_SCROLL) return FALSE;
-	
-	gtk_widget_grab_focus(entry);
-	
+
 	struct time_spin_widget *spin = user_data;
 	assert(user_data);
 	if(entry != spin->hour && entry != spin->minute && entry != spin->second) return FALSE;
@@ -164,6 +163,18 @@ static gboolean on_spin_entry_scroll(GtkWidget *entry, GdkEventScroll *event, vo
 	return FALSE;
 }
 
+static void on_insert_text(GtkEditable *entry, char *new_text, int cb_text, gint * position, gpointer user_data)
+{
+	printf("%s()...\n", __FUNCTION__);
+	for(int i = 0; i < cb_text; ++i) {
+		if(!isdigit(new_text[i])) {
+			g_signal_stop_emission_by_name(entry, "insert-text");
+			fprintf(stdout, "\aBeep!\n");
+			return;
+		}
+	}
+	return;
+}
 static GtkWidget *create_spin_entry(struct time_spin_widget *spin)
 {
 	GtkWidget *entry = gtk_entry_new();
@@ -172,10 +183,11 @@ static GtkWidget *create_spin_entry(struct time_spin_widget *spin)
 	
 	gtk_entry_set_width_chars(GTK_ENTRY(entry), 3);
 	gtk_entry_set_max_length(GTK_ENTRY(entry), 2);
-	gtk_entry_set_alignment(GTK_ENTRY(entry), 1.0);
+	gtk_entry_set_alignment(GTK_ENTRY(entry), 0.9);
 	
 	gtk_widget_set_events(entry, gtk_widget_get_events(entry) | GDK_SCROLL_MASK);
 	g_signal_connect(entry, "scroll-event", G_CALLBACK(on_spin_entry_scroll), spin);
+	g_signal_connect(entry, "insert-text", G_CALLBACK(on_insert_text), spin);
 	return entry;
 }
 
@@ -214,8 +226,6 @@ static GtkWidget *create_up_down_buttons(struct time_spin_widget *spin)
 
 struct time_spin_widget *time_spin_widget_init(struct time_spin_widget *spin, int show_seconds, void *user_data)
 {
-	
-	
 	if(NULL == spin) spin = calloc(1, sizeof(*spin));
 	assert(spin);
 	
@@ -240,10 +250,10 @@ struct time_spin_widget *time_spin_widget_init(struct time_spin_widget *spin, in
 	
 	
 	gtk_box_pack_start(GTK_BOX(box), hour, TRUE, TRUE, 1);
-	gtk_box_pack_start(GTK_BOX(box), gtk_label_new(":"), FALSE, TRUE, 1);
+	gtk_box_pack_start(GTK_BOX(box), gtk_label_new(" : "), FALSE, TRUE, 1);
 	gtk_box_pack_start(GTK_BOX(box), minute, TRUE, TRUE, 1);
 	if(show_seconds && second) {
-		gtk_box_pack_start(GTK_BOX(box), gtk_label_new(":"), FALSE, TRUE, 1);
+		gtk_box_pack_start(GTK_BOX(box), gtk_label_new(" : "), FALSE, TRUE, 1);
 		gtk_box_pack_start(GTK_BOX(box), second, TRUE, TRUE, 1);
 	}
 	
@@ -263,10 +273,32 @@ struct time_spin_widget *time_spin_widget_init(struct time_spin_widget *spin, in
 	return spin;
 }
 
-#if defined(TEST_TIME_SPIN_WIDGET_) && defined(_STAND_ALONE) 
+#if 1 || defined(TEST_TIME_SPIN_WIDGET_) && defined(_STAND_ALONE) 
 int main(int argc, char **argv)
 {
 	gtk_init(&argc, &argv);
+	
+	// set default background
+	static const char *css_string = "window,dialog label { background-color: #454545; color: #FFFFFF; }\n"
+		".spin_entry { border: none; } \n"
+		"entry:active { border: none; background-color: #ff0000; } \n"
+		"box { border: 1px; background-color: white; color: black; } \n"
+		"headerbar { color: black;}\n"
+		;
+	GtkCssProvider *css = gtk_css_provider_new();
+	GError *gerr = NULL;
+	gboolean ok = gtk_css_provider_load_from_data(css, css_string, strlen(css_string), &gerr);
+	if(!ok) {
+		fprintf(stderr, "load css failed: %s\n", gerr->message);
+	}
+	assert(ok);
+	
+	GdkScreen *screen = gdk_display_get_default_screen(gdk_display_get_default());
+	gtk_style_context_add_provider_for_screen(screen,
+		GTK_STYLE_PROVIDER(css), 
+		GTK_STYLE_PROVIDER_PRIORITY_USER);
+		
+		
 	GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
 	GtkWidget *header_bar = gtk_header_bar_new();
 	gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(header_bar), TRUE);
@@ -298,6 +330,8 @@ int main(int argc, char **argv)
 	gtk_widget_show_all(window);
 	g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
 	
+	
+	gtk_widget_grab_focus(window);
 	gtk_main();
 	
 	free(begin);

@@ -30,6 +30,8 @@ struct stream_viewer
 	gulong slider_update_handler;
 	
 	int show_counters;
+	int show_counters_mode2;
+	
 	struct classes_counter_context counter_ctx[1];
 	GtkWidget *context_menu;
 	
@@ -40,6 +42,8 @@ struct stream_viewer
 	
 //	int face_masking_flag;
 	int is_busy;
+	
+	
 };
 
 struct stream_viewer * stream_viewer_init(struct stream_viewer *viewer, int index, int min_width, int min_height, struct shell_context *shell);
