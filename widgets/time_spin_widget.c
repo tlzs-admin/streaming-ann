@@ -273,7 +273,7 @@ struct time_spin_widget *time_spin_widget_init(struct time_spin_widget *spin, in
 	return spin;
 }
 
-#if 1 || defined(TEST_TIME_SPIN_WIDGET_) && defined(_STAND_ALONE) 
+#if 0 || defined(TEST_TIME_SPIN_WIDGET_) && defined(_STAND_ALONE) 
 int main(int argc, char **argv)
 {
 	gtk_init(&argc, &argv);

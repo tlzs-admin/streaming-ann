@@ -286,6 +286,8 @@ static void draw_counters(cairo_t *cr, const int font_size, json_object *jcolors
 			json_bool ok = FALSE;
 			json_object *jcolor = NULL;
 			ok = json_object_object_get_ex(jcolors, counters->classes[i].name, &jcolor);
+			if(!ok || NULL == jcolor) continue;
+			
 			if(ok && jcolor) color_name = json_object_get_string(jcolor);
 			if(color_name) color_parsed = gdk_rgba_parse(&fg_color, color_name);
 		}
@@ -305,20 +307,21 @@ static void draw_counters(cairo_t *cr, const int font_size, json_object *jcolors
 		char text[100] = "";
 		snprintf(text, sizeof(text), "%ld 人", persons_count);
 		
-		cairo_select_font_face(cr, "IPAGothic", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
-		cairo_set_line_width(cr, 10);
-		cairo_set_font_size(cr, height / 3);
 		
 		cairo_set_source_rgba(cr, 0.2, 0.2, 0.2, 0.3);
 		cairo_rectangle(cr, width / 30, height / 30, width - width / 30, height - height / 30);
 		cairo_fill(cr);
+		
+		cairo_select_font_face(cr, "IPAGothic", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+		cairo_set_line_width(cr, 10);
+		cairo_set_font_size(cr, height / 3);
 		
 		cairo_set_source_rgba(cr, 1, 1, 0, 0.8);
 		cairo_text_extents_t extents;
 		memset(&extents, 0, sizeof(extents));
 		cairo_text_extents(cr, text, &extents);
 		
-		cairo_move_to(cr, x + (width - extents.width) / 2, y + height  / 2 + extents.height / 2);
+		cairo_move_to(cr, (width - extents.width) / 2, height / 2  + extents.height / 2);
 		cairo_show_text(cr, text);
 	}
 	return;
@@ -484,13 +487,11 @@ static void draw_face_masking(cairo_t *cr, double width, double height,
 		// todo: blur_face(cr, kernel_size, center_x, center_y, radius);
 		/* draw masks */
 		cairo_set_source_rgba(cr, 
-			0, face_bg.green, face_bg.blue, 
+			face_bg.red, face_bg.green, face_bg.blue, 
 			(radius>blur_face_size)?1.0:face_bg.alpha);
 		cairo_arc(cr, center_x, center_y, radius, 0.0, 3.1415926 * 2);
 		cairo_fill(cr);
 	}
-	
-	
 	
 	for(ssize_t i = 0; i < num_detections; ++i) {
 		if(dets[i].class_id != 0) continue; // not person
