@@ -1,0 +1,231 @@
+/*
+ * shell_private.c.impl
+ * 
+ * Copyright 2022 chehw <hongwei.che@gmail.com>
+ * 
+ * The MIT License (MIT)
+ * Permission is hereby granted, free of charge, to any person obtaining a copy 
+ * of this software and associated documentation files (the "Software"), to deal 
+ * in the Software without restriction, including without limitation the rights 
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell 
+ * copies of the Software, and to permit persons to whom the Software is 
+ * furnished to do so, subject to the following conditions:
+ * 
+ * The above copyright notice and this permission notice shall be included in all 
+ * copies or substantial portions of the Software.
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE 
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, 
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS 
+ * IN THE SOFTWARE.
+ */
+
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <assert.h>
+#include <math.h>
+
+#include "da_panel.h"
+#include "app.h"
+#include "shell.h"
+#include "shell_private.h"
+#include "stream_viewer.h"
+
+#include "utils.h"
+GtkWidget * settings_dlg_new(const char *title, GtkWidget *parent_window, struct shell_context *shell);
+
+struct shell_private * shell_private_new(struct shell_context * shell)
+{
+	struct shell_private *priv = calloc(1, sizeof(*priv));
+	assert(priv);
+	if(NULL == priv) return NULL;
+	
+	priv->shell = shell;
+	
+	
+	return priv;
+}
+
+
+int fullscreen_mode_switch(struct shell_context * shell)
+{
+	struct shell_private *priv = shell->priv;
+	priv->fullscreen_status = !priv->fullscreen_status;
+	if(priv->fullscreen_status) {
+		int viewer_index = priv->fullscreen_viewer_index;
+		//if(viewer_index < 0 || viewer_index >= priv->num_streams) viewer_index = 0;
+		
+		gtk_window_fullscreen(GTK_WINDOW(priv->window));
+		
+		if(viewer_index != -1) {
+			for(int i = 0; i < priv->num_streams; ++i) {
+				if(i == viewer_index) {
+					//~ gtk_widget_hide(priv->views[i].hbox[0]);
+					//~ gtk_widget_hide(priv->views[i].hbox[1]);
+					continue;
+				}
+				gtk_widget_hide(priv->views[i].grid);
+			}
+		}
+	}else {
+		gtk_window_unfullscreen(GTK_WINDOW(priv->window));
+		for(int i = 0; i < priv->num_streams; ++i) {
+			gtk_widget_show(priv->views[i].grid);
+		}
+	}
+	return 0;
+}
+
+static gboolean on_window_key_release(GtkWidget * window, GdkEventKey * event, struct shell_context * shell)
+{
+	struct shell_private *priv = shell->priv;
+	// debug_printf("%s()::key: %u, state=%.8x\n", __FUNCTION__, event->keyval, event->state);
+	switch(event->keyval) {
+	case GDK_KEY_F11:
+		fullscreen_mode_switch(shell);
+		return TRUE;
+	case GDK_KEY_Escape:
+		if(priv->fullscreen_status) fullscreen_mode_switch(shell);
+		return TRUE;
+	}
+	return FALSE;
+}
+
+void on_app_settings_button_clicked(GtkWidget *button, struct shell_context *shell)
+{
+	static GtkWidget *dlg = NULL;
+	if(NULL == dlg) {
+		dlg = settings_dlg_new("App Settings", shell->priv->window, shell);
+		assert(dlg);
+		
+	}
+	
+	gtk_widget_show_all(dlg);
+	guint response = gtk_dialog_run(GTK_DIALOG(dlg));
+	
+	g_print("%s: response = %u\n", __FUNCTION__, response);
+	gtk_widget_hide(dlg);
+	return;
+}
+
+static gboolean on_window_state_changed(GtkWidget *window, GdkEventWindowState *event, struct shell_context *shell)
+{
+	assert(event->type == GDK_WINDOW_STATE);
+	if(event->changed_mask & GDK_WINDOW_STATE_MAXIMIZED) {
+		if(event->new_window_state & GDK_WINDOW_STATE_MAXIMIZED) {
+			if(!shell->priv->fullscreen_status) {
+				fullscreen_mode_switch(shell);
+				return TRUE;
+			}
+		}
+	}
+	return FALSE;
+}
+
+static void on_shell_fullscreen(GtkWidget *button, struct shell_context *shell)
+{
+	if(!shell->priv->fullscreen_status) {
+		shell->priv->fullscreen_viewer_index = -1;
+		fullscreen_mode_switch(shell);
+		return;
+	}
+}
+
+static int init_windows(struct shell_context *shell)
+{
+	struct app_context *app = shell->app;
+	struct shell_private * priv = shell->priv;
+	const char *title = app->title;
+	json_object *jconfig = app->jconfig;
+	json_object *jstreams = NULL;
+	json_object *jui = NULL;
+	json_bool ok = json_object_object_get_ex(jconfig, "streams", &jstreams);
+	int num_streams = 1;
+	if(ok && jstreams) num_streams = json_object_array_length(jstreams);
+	
+	int grid_cols = -1;
+//	int grid_rows = -1;
+	ok = json_object_object_get_ex(jconfig, "ui", &jui);
+	if(ok && jui) {
+		json_object *jgrid_size = NULL;
+		ok = json_object_object_get_ex(jui, "grid_size", &jgrid_size);
+		if(ok && jgrid_size) {
+			grid_cols = json_get_value(jgrid_size, int, cols);
+		//	grid_rows = json_get_value(jgrid_size, int, rows);
+		}
+	}
+	
+	printf("num_streams: %d\n", num_streams);
+	if(num_streams > 0) {
+		priv->views = calloc(num_streams, sizeof(*priv->views));
+		assert(priv->views);
+		priv->num_streams = num_streams;
+	}
+
+	int image_width = 640;
+	int image_height = 360;
+	
+	GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+	GtkWidget *header_bar = gtk_header_bar_new();
+	GtkWidget *grid = gtk_grid_new();
+	
+	gtk_window_set_default_size(GTK_WINDOW(window), 1280, 800);
+	gtk_container_add(GTK_CONTAINER(window), grid);
+	gtk_window_set_titlebar(GTK_WINDOW(window), header_bar);
+	gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(header_bar), TRUE);
+	gtk_header_bar_set_title(GTK_HEADER_BAR(header_bar), title);
+	gtk_header_bar_set_has_subtitle(GTK_HEADER_BAR(header_bar), TRUE);
+	
+	
+	priv->window = window;
+	priv->header_bar = header_bar;
+	priv->grid = grid;
+	
+	GtkWidget *app_settings_btn = gtk_button_new_from_icon_name("applications-system", GTK_ICON_SIZE_BUTTON);
+	gtk_header_bar_pack_start(GTK_HEADER_BAR(header_bar), app_settings_btn);
+	g_signal_connect(app_settings_btn, "clicked", G_CALLBACK(on_app_settings_button_clicked), shell);
+	
+	int num_cols = sqrt(num_streams) + 0.5;
+	if(grid_cols > 0) num_cols = grid_cols;
+	
+	for(int i = 0; i < num_streams; ++i) {
+		struct stream_viewer * view = stream_viewer_init(&priv->views[i], i, image_width, image_height, shell);
+		gtk_grid_attach(GTK_GRID(grid), view->grid, i % num_cols, i / num_cols, 1, 1);
+		
+		json_object *jstream = json_object_array_get_idx(jstreams, i);
+		view->panel->keep_ratio = json_get_value(jstream, int, keep_ratio);
+	}
+	
+	g_signal_connect(window, "key-release-event", G_CALLBACK(on_window_key_release), shell);
+	g_signal_connect_swapped(window, "destroy", G_CALLBACK(shell->stop), shell);
+	g_signal_connect(window, "window-state-event", G_CALLBACK(on_window_state_changed), shell);
+	
+	
+	GtkWidget *fullscreen_btn = gtk_button_new_from_icon_name("view-fullscreen", GTK_ICON_SIZE_BUTTON);
+	g_signal_connect(fullscreen_btn, "clicked", G_CALLBACK(on_shell_fullscreen), shell);
+	gtk_header_bar_pack_start(GTK_HEADER_BAR(header_bar), fullscreen_btn);
+	
+	gtk_widget_show_all(window);
+	
+	for(int i = 0; i < num_streams; ++i) {
+		struct stream_viewer * view = &priv->views[i];
+		json_object *jstream = json_object_array_get_idx(jstreams, i);
+		gboolean state = json_get_value(jstream, int, show_toolsbar);
+		gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(view->show_toolbars_menu), state);
+		gtk_widget_set_visible(view->hbox[0], state);
+		gtk_widget_set_visible(view->hbox[1], state);
+	}
+	
+	shell->priv->fullscreen_viewer_index = -1;
+	gboolean fullscreen = json_get_value(jui, int, fullscreen);
+	if(fullscreen) {
+		fullscreen_mode_switch(shell);
+	}
+	return 0;
+}
+

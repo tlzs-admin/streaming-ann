@@ -1,0 +1,101 @@
+{
+	"ai-engines": [
+		{
+			"id": 1,
+			"name": "ai-1",
+			"type": "ai-engine::httpclient",
+			"url": "http://127.0.0.1:9090/ai",
+		},
+		{
+			"id": 2,
+			"name": "ai-2",
+			"type": "ai-engine::httpclient",
+			"url": "http://127.0.0.1:9090/ai",
+		},
+		{
+			"id": 3,
+			"name": "ai-3",
+			"type": "ai-engine::httpclient",
+			"url": "http://127.0.0.1:9090/ai",
+		},
+		{
+			"id": 4,
+			"name": "ai-4",
+			"type": "ai-engine::httpclient",
+			"url": "http://127.0.0.1:9090/ai",
+		},
+	],
+	
+	"streams": [
+		{
+			"input": {
+				"name": "camera1",
+				"type": "io-plugin::streaming-proxy",
+				"channel_name": "channel0",
+				"ai_enabled": 1,
+			},
+			"ai-engines": [ {"id": 1, "enabled": 1}, ],
+			"show_toolsbar": 1,
+			"keep_ratio": 0,
+			"detection_mode": 1,
+		},
+		{
+			"input": {
+				"name": "camera2",
+				"type": "io-plugin::streaming-proxy",
+				"channel_name": "channel1",
+				"ai_enabled": 1,
+			},
+			"ai-engines": [ {"id": 2, "enabled": 1}, ],
+			"show_toolsbar": 1,
+			"keep_ratio": 0,
+			"detection_mode": 1,
+		},
+		{
+			"input": {
+				"name": "camera3",
+				"type": "io-plugin::streaming-proxy",
+				"channel_name": "channel2",
+				"ai_enabled": 1,
+			},
+			"ai-engines": [ {"id": 3, "enabled": 1} ],
+			"show_toolsbar": 1,
+			"keep_ratio": 0,
+			"detection_mode": 1,
+		},
+		{
+			"input": {
+				"name": "camera4",
+				"type": "io-plugin::streaming-proxy",
+				"channel_name": "channel3",
+				"ai_enabled": 0,
+			},
+			"ai-engines": [ {"id": 4, "enabled": 1} ],
+			"show_toolsbar": 1,
+			"keep_ratio": 0,
+			"detection_mode": 1,
+		},
+	],
+	"ui": {
+		"grid_size": {
+			"cols": -1, // <=0: auto calc cols, 
+			"rows": -1, // <=0: auto calc rows,
+		},
+		"fps": 3,
+		"colors": {
+			"default": "green", // #00ff00
+			"person": "darkblue", // #00008b
+		//	"bicycle": "#adff2f", // GreenYellow
+			"car": "yellow", // #ffff00
+			"bus": "#fffacd", // LemonChiffon
+			"motorbike": "#f08080", // LightCoral 
+			"train": "#ff00ff", // Magenta
+			"truck": "Orange", // #ffa500
+		//	"traffic light": "Wheat", // #f5deb3,
+		//	"book": "red",
+		//	"tie": "#ccccff",
+		//	"bed": "dfff00",
+		},
+	}
+}
+

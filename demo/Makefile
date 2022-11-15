@@ -37,6 +37,9 @@ COMMON_OBJECTS := $(COMMON_SOURCES:%.c=%.o)
 VIDEO_PLAYER4_SOURCES := video-player4.c $(wildcard video_player4/*.c)
 VIDEO_PLAYER4_OBJECTS := $(VIDEO_PLAYER4_SOURCES:%.c=%.o)
 
+VIDEO_PLAYER5_SOURCES := video-player5.c streaming-proxy.c $(wildcard video_player5/*.c)
+VIDEO_PLAYER5_OBJECTS := $(VIDEO_PLAYER5_SOURCES:%.c=%.o)
+
 CV_WRAPPER_OBJECTS := ../src/cpps/cvmat-wrapper.o.dyn ../src/cpps/cvface-wrapper.o.dyn
 
 all: languages $(TARGETS)
@@ -58,11 +61,16 @@ $(COMMON_OBJECTS): %.o : %.c $(COMMON_DEPS)
 
 $(VIDEO_PLAYER4_OBJECTS): %.o : %.c $(DEPS)
 	$(CC) -o $@ -c $< $(CFLAGS)
-
-
+	
 video-player4: $(VIDEO_PLAYER4_OBJECTS) $(COMMON_OBJECTS)
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
+
+$(VIDEO_PLAYER5_OBJECTS): %.o : %.c $(DEPS)
+	$(CC) -o $@ -c $< $(CFLAGS) $(shell pkg-config --cflags libsoup-2.4)
+
+video-player5: $(VIDEO_PLAYER5_OBJECTS) $(COMMON_OBJECTS)
+	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS) $(shell pkg-config --libs libsoup-2.4)
 
 plugins/libaiplugin-cvface.so : $(CV_WRAPPER_OBJECTS) opencv-plugin.c ../utils/utils.c
 	$(LINKER) -fPIC -shared -pthread -g -Wall -o $@ $^ $(CFLAGS) $(shell pkg-config --cflags --libs opencv4) -lm -lpthread -ljson-c -ldl -lstdc++
@@ -78,6 +86,6 @@ languages: langs/ja.po
 	msgfmt --output-file langs/ja/LC_MESSAGES/demo.mo langs/ja.po
 
 clean:
-	rm -f $(COMMON_OBJECTS) $(VIDEO_PLAYER4_OBJECTS) 
-	rm -f video-player4
+	rm -f $(COMMON_OBJECTS) $(VIDEO_PLAYER4_OBJECTS) $(VIDEO_PLAYER5_OBJECTS) 
+	rm -f video-player4 video-player5
 

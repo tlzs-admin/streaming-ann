@@ -56,6 +56,7 @@ backup/
 !deepsort-clib/include
 
 !demo/video_player4
+!demo/video_player5
 !demo/langs
 !demo/langs/ja
 !demo/langs/ja/LC_MESSAGES
