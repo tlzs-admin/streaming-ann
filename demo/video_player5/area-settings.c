@@ -388,7 +388,20 @@ static long area_settings_dialog_open(struct area_settings_dialog * settings, co
 		assert(surface);
 		
 		unsigned char * image_data = cairo_image_surface_get_data(surface);
-		memcpy(image_data, bk_image->data, bk_image->width * bk_image->height * 4);
+		
+		if(bk_image->type == input_frame_type_jpeg)
+		{
+			bgra_image_t bgra[1];
+			memset(bgra, 0, sizeof(bgra));
+			int rc = bgra_image_from_jpeg_stream(bgra, bk_image->data, bk_image->length);
+			assert(0 == rc);
+			memcpy(image_data, bgra->data, bgra->width * bk_image->height * 4);
+			bgra_image_clear(bgra);
+			
+		}else {
+			
+			memcpy(image_data, bk_image->data, bk_image->width * bk_image->height * 4);
+		}
 		cairo_surface_mark_dirty(surface);
 	}
 	

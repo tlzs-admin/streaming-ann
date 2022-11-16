@@ -45,17 +45,19 @@ static long video_stream_get_frame(struct video_stream *stream, long prev_frame,
 	struct video_frame *frame = stream->frame_buffer[0];
 	if(NULL == frame) {
 		pthread_rwlock_unlock(&stream->rwlock);
-		return stream->frame_number;
+		return -1;
 	}
 	
+	video_frame_addref(frame);
 	input->type = frame->type;
-	
 	input->data = NULL;
 	if(frame->data && frame->length > 0)
 	{
 		input->data = malloc(frame->length);
 		memcpy(input->data, frame->data, frame->length);
 	}
+	video_frame_unref(frame);
+	
 	input->length = frame->length;
 	input->width = frame->width;
 	input->height = frame->height;
@@ -65,6 +67,8 @@ static long video_stream_get_frame(struct video_stream *stream, long prev_frame,
 	
 	stream->frame_number = frame->frame_number;
 	prev_frame = stream->frame_number;
+	
+	
 	pthread_rwlock_unlock(&stream->rwlock);
 	return prev_frame;
 }
