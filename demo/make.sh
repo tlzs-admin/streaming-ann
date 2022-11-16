@@ -116,6 +116,19 @@ case ${target} in
              -lm -lpthread -ljson-c -ljpeg -lpng -lcairo -ldl \
              `pkg-config --libs --cflags gio-2.0 glib-2.0 gtk+-3.0 gstreamer-1.0`
          ;;
+         
+    streaming-proxy)
+		 gcc -std=gnu99 -g -Wall -I../include  -D_DEBUG -D_GNU_SOURCE \
+			-DTEST_STREAMING_PROXY_ -D_STAND_ALONE \
+			${CFLAGS} \
+			-o test_streaming-proxy streaming-proxy.c \
+			../utils/video_source_common.c ../utils/img_proc.c ../utils/utils.c \
+			 -lm -lpthread -ljson-c -ljpeg -lpng -lcairo -ldl \
+			`pkg-config --libs --cflags gio-2.0 glib-2.0 gtk+-3.0 gstreamer-1.0 gstreamer-app-1.0 libsoup-2.4`
+		;;
+    streaming-client)
+            gcc -std=gnu99 -g -Wall -D_DEBUG -I../include -o streaming-client streaming-client.c -lm -lpthread -lcurl -ljpeg $(pkg-config --cflags --libs gstreamer-1.0 gstreamer-app-1.0 gio-2.0) -ljson-c
+            ;;
 
     *)
 		echo "no building rules"

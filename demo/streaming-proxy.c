@@ -276,7 +276,9 @@ static void on_streaming_proxy_handler(SoupServer *http, SoupMessage *msg, const
 		soup_message_set_status(msg, SOUP_STATUS_OK);
 		return;
 	}
-
+	
+	soup_message_set_status(msg, SOUP_STATUS_BAD_REQUEST);
+	return;
 }
 
 static struct channel_context * find_channel_by_name(struct streaming_proxy_context *proxy, const char *name)

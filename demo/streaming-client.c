@@ -74,10 +74,16 @@ static int upload_image(CURL *curl, const char *server_url, struct video_frame *
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 	
 	CURLcode ret = curl_easy_perform(curl);
-	video_frame_unref(frame);
 	curl_slist_free_all(headers);
 	
-	printf("== ret: %d\n", ret);
+	if(ret != CURLE_OK) {
+		fprintf(stderr, "== ret: %d, server_url: %s, err_msg: %s\n", 
+			ret,
+			server_url, 
+			curl_easy_strerror(ret));
+		curl_easy_reset(curl);
+		return ret;
+	}
 	curl_easy_reset(curl);
 	return 0;
 }
@@ -91,22 +97,17 @@ static json_object *generate_default_config()
 	json_object *jconfig = json_object_new_array();
 
 	json_object *jclient = json_object_new_object();
-	json_object_object_add(jclient, "server_url", 
-		json_object_new_string("http://localhost:8800/default/channel0"));
-	json_object_object_add(jclient, "video_uri", 
-		json_object_new_string("/dev/video0"));
+	json_object_object_add(jclient, "server_url", json_object_new_string("http://localhost:8800/default/channel0"));
+	json_object_object_add(jclient, "video_uri", json_object_new_string("/dev/video0"));
 	json_object_array_add(jconfig, jclient);
 	
 	
 	jclient = json_object_new_object();
-	json_object_object_add(jclient, "server_url", 
-		json_object_new_string("http://localhost:8800/default/channel1"));
-	json_object_object_add(jclient, "video_uri", 
-		json_object_new_string("https://www.youtube.com/watch?v=QDC4mxC2NKM"));
+	json_object_object_add(jclient, "server_url", json_object_new_string("http://localhost:8800/default/channel1"));
+	json_object_object_add(jclient, "video_uri", json_object_new_string("https://www.youtube.com/watch?v=QDC4mxC2NKM"));
 	json_object_array_add(jconfig, jclient);
 	
 	return jconfig;
-	
 }
 
 static GMainLoop *g_loop = NULL;
