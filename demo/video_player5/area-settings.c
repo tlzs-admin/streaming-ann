@@ -395,7 +395,7 @@ static long area_settings_dialog_open(struct area_settings_dialog * settings, co
 			memset(bgra, 0, sizeof(bgra));
 			int rc = bgra_image_from_jpeg_stream(bgra, bk_image->data, bk_image->length);
 			assert(0 == rc);
-			memcpy(image_data, bgra->data, bgra->width * bk_image->height * 4);
+			memcpy(image_data, bgra->data, bgra->width * bgra->height * 4);
 			bgra_image_clear(bgra);
 			
 		}else {

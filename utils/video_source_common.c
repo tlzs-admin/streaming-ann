@@ -503,6 +503,8 @@ static gboolean on_pipeline_error(GstBus *bus, GstMessage *message, struct video
 	gst_message_parse_error(message, &gerr, &debug_info);
 	
 	video->err_code = 2;
+	if(video->on_error) video->on_error(video, video->user_data);
+	
 	if(gerr) {
 		fprintf(stderr, "%s(%d)::%s(): element=%s, err=%s\n", __FILE__, __LINE__, __FUNCTION__, 
 			objname, gerr->message);
@@ -512,6 +514,15 @@ static gboolean on_pipeline_error(GstBus *bus, GstMessage *message, struct video
 		fprintf(stderr, "%s(%d)::%s(): debug_info=%s\n", __FILE__, __LINE__, __FUNCTION__, debug_info);
 		g_free(debug_info);
 	}
+	
+	GstElement *pipeline = video->pipeline;
+	video->settings_changed = 1;
+	video->pipeline = NULL;
+	if(pipeline) {
+		gst_element_set_state(pipeline, GST_STATE_NULL);
+		gst_object_unref(pipeline);
+	}
+	
 	return TRUE;
 }
 static gboolean on_pipeline_state_changed(GstBus *bus, GstMessage *message, struct video_source_common *video)

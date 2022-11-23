@@ -127,7 +127,13 @@ case ${target} in
 			`pkg-config --libs --cflags gio-2.0 glib-2.0 gtk+-3.0 gstreamer-1.0 gstreamer-app-1.0 libsoup-2.4`
 		;;
     streaming-client)
-            gcc -std=gnu99 -g -Wall -D_DEBUG -I../include -o streaming-client streaming-client.c -lm -lpthread -lcurl -ljpeg $(pkg-config --cflags --libs gstreamer-1.0 gstreamer-app-1.0 gio-2.0) -ljson-c
+        gcc -std=gnu99 -g -Wall -D_DEBUG -I../include -o streaming-client streaming-client.c -lm -lpthread -lcurl -ljpeg $(pkg-config --cflags --libs gstreamer-1.0 gstreamer-app-1.0 gio-2.0) -ljson-c
+            ;;
+            
+    camera-switch)
+        gcc -std=gnu99 -g -Wall -D_DEBUG -I../include -o camera-switch camera-switch.c \
+            ../utils/video_source_common.c ../utils/img_proc.c \
+            -lm -lpthread -lcurl -ljpeg -lcairo $(pkg-config --cflags --libs gstreamer-1.0 gstreamer-app-1.0 gio-2.0 libsoup-2.4) -ljson-c
             ;;
 
     *)

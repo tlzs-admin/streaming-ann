@@ -136,7 +136,7 @@ static void *client_thread(void *user_data)
 	
 	const struct timespec timeout = {
 		.tv_sec = 0,
-		.tv_nsec = 300 * 1000 * 1000,
+		.tv_nsec = 100 * 1000 * 1000,
 	};
 	
 	CURL *curl = curl_easy_init();
