@@ -149,6 +149,11 @@ static void *upload_frame(void *user_data)
 		if(mgr->is_busy) continue;
 		struct video_frame *frame = mgr->addref_frame(mgr, mgr->frame);
 		if(NULL == frame) continue;
+		
+		if(mgr->current_frame) {
+			mgr->unref_frame(mgr, mgr->current_frame);
+			mgr->current_frame = NULL;
+		}
 		mgr->current_frame = frame;
 		
 		mgr->is_busy = 1;
@@ -182,6 +187,7 @@ struct video_frame *camera_manager_addref_frame(struct camera_manager *mgr, stru
 {
 	if(NULL == frame) return NULL;
 	pthread_mutex_lock(&mgr->frame_mutex);
+	debug_printf("%s(frame=%p, ref=%ld)...\n", __FUNCTION__, frame, frame->refs);
 	video_frame_addref(frame);
 	pthread_mutex_unlock(&mgr->frame_mutex);
 	return frame;
@@ -190,7 +196,9 @@ void camera_manager_unref_frame(struct camera_manager *mgr, struct video_frame *
 {
 	if(NULL == frame) return;
 	pthread_mutex_lock(&mgr->frame_mutex);
+	debug_printf("%s(frame=%p, ref=%ld)...\n", __FUNCTION__, frame, frame->refs);
 	video_frame_unref(frame);
+	
 	pthread_mutex_unlock(&mgr->frame_mutex);
 }
 
@@ -299,6 +307,7 @@ struct video_source_common *camera_manager_get_active_source(struct camera_manag
 	return camera->video;
 }
 
+GMainLoop *g_loop;
 volatile int g_quit;
 static guint g_timer_id;
 static gboolean on_timeout(gpointer user_data)
@@ -306,6 +315,10 @@ static gboolean on_timeout(gpointer user_data)
 	struct camera_manager *mgr = user_data;
 	if(g_quit || NULL == mgr) {
 		g_timer_id = 0;
+		if(g_quit && g_loop) {
+			g_main_loop_quit(g_loop);
+			g_loop = NULL;
+		}
 		return G_SOURCE_REMOVE;
 	}
 	
@@ -366,6 +379,8 @@ static gboolean on_timeout(gpointer user_data)
 int camera_manager_run(struct camera_manager *mgr)
 {
 	GMainLoop *loop = g_main_loop_new(NULL, FALSE);
+	g_loop = g_main_loop_ref(loop);
+	
 	g_timer_id = g_timeout_add(1000 / 10, on_timeout, mgr);
 	g_main_loop_run(loop);
 	
@@ -374,7 +389,10 @@ int camera_manager_run(struct camera_manager *mgr)
 		g_timer_id = 0;
 	}
 	g_main_loop_unref(loop);
-	
+	if(g_loop) {
+		g_main_loop_unref(g_loop);
+		g_loop = NULL;
+	}
 	return 0;
 }
 
@@ -407,6 +425,21 @@ void camera_manager_free(struct camera_manager *mgr)
 {
 	if(NULL == mgr) return;
 	camera_manager_stop(mgr);
+	
+	pthread_mutex_lock(&mgr->frame_mutex);
+	if(mgr->current_frame) {
+		video_frame_unref(mgr->current_frame);
+		mgr->current_frame = NULL;
+	}
+	if(mgr->frame) {
+		video_frame_unref(mgr->frame);
+		mgr->frame = NULL;
+	}
+	pthread_mutex_unlock(&mgr->frame_mutex);
+	
+	pthread_cond_destroy(&mgr->cond_mutex.cond);
+	pthread_mutex_destroy(&mgr->cond_mutex.mutex);
+	pthread_mutex_destroy(&mgr->frame_mutex);
 	
 	free(mgr);
 	return;
@@ -520,9 +553,21 @@ void camera_info_free(struct camera_info *camera)
 /******************************************************************************
  * main
 ******************************************************************************/
-
+#include <signal.h>
+void on_signal(int sig)
+{
+	switch(sig) {
+	case SIGINT: case SIGUSR1:
+		g_quit = 1;
+		return;
+	}
+	
+	abort();
+}
 int main(int argc, char **argv)
 {
+	signal(SIGINT, on_signal);
+	signal(SIGUSR1, on_signal);
 	gst_init(&argc, &argv);
 	
 	const char *conf_file = "camera-switch.json";

@@ -734,6 +734,10 @@ static void draw_frame(da_panel_t *panel, const input_frame_t *frame, json_objec
 		if(surface) cairo_surface_destroy(surface);
 		surface = panel->surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, frame->width, frame->height);
 		assert(surface && cairo_surface_status(surface) == CAIRO_STATUS_SUCCESS);
+		
+		panel->image_width = frame->width;
+		panel->image_height = frame->height;
+		
 	}	
 	image_data = cairo_image_surface_get_data(surface);
 	assert(image_data);

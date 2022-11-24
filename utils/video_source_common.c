@@ -215,6 +215,7 @@ void video_frame_unref(struct video_frame *frame)
 {
 	if(NULL == frame || frame->refs <= 0) return;
 	if(0 == --frame->refs) {
+		debug_printf("%s(refs=%ld) ==> free object(%p)\n", __FUNCTION__, frame->refs, frame);
 		if(frame->data) { free(frame->data); frame->data = NULL; }
 		free(frame);
 	}
@@ -224,6 +225,7 @@ struct video_frame *video_frame_addref(struct video_frame *frame)
 {
 	if(NULL == frame || frame->refs <= 0) return NULL;
 	++frame->refs;
+	debug_printf("%s(refs=%ld): frame=%p\n", __FUNCTION__, frame->refs, frame);
 	return frame;
 }
 
@@ -557,6 +559,8 @@ static int relaunch_pipeline(struct video_source_common *video)
 	
 	GError *gerr = NULL;
 	pipeline = gst_parse_launch(video->gst_command, &gerr);
+	video->pipeline = pipeline;
+	
 	if(gerr) {
 		fprintf(stderr, "error: %s\n", gerr->message);
 		g_error_free(gerr);
@@ -564,7 +568,6 @@ static int relaunch_pipeline(struct video_source_common *video)
 		return -1;
 	}
 	assert(pipeline);
-	
 	GstElement *caps_filter = gst_bin_get_by_name(GST_BIN(pipeline), "caps");
 	if(caps_filter) {
 		video->caps_filter = caps_filter;
@@ -589,8 +592,6 @@ static int relaunch_pipeline(struct video_source_common *video)
 	g_signal_connect(bus, "message::state-changed", G_CALLBACK(on_pipeline_state_changed), video);
 	gst_object_unref(bus);
 	
-	
-	video->pipeline = pipeline;
 	gst_element_set_state(pipeline, GST_STATE_READY);
 	return 0;
 }
