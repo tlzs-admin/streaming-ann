@@ -159,10 +159,11 @@ ssize_t load_binary_data(const char * filename, unsigned char **p_dst)
 	assert(fp);
 	
 	unsigned char * data = *p_dst;
-	*p_dst = realloc(data, size + 1);
-	assert(*p_dst);
-	
-	data = *p_dst;
+	if(NULL == data) {
+		data = malloc(size + 1);
+		assert(data);
+		*p_dst = data;
+	}
 	ssize_t length = fread(data, 1, size, fp);
 	fclose(fp);
 	
@@ -219,6 +220,49 @@ int check_folder(const char * path_name, int auto_create)
 	
 	if(S_ISDIR(st->st_mode)) return 0;
 	return 1;
+}
+
+
+/******************************************************************************
+ * read_password_stdin
+******************************************************************************/
+#include <termios.h>
+ssize_t read_password_stdin(char secret[], size_t size)
+{
+	if(NULL == secret || size < 1) return -1;
+	
+	ssize_t cb_secret = -1;
+	struct termios old_attr, attr;
+	memset(&old_attr, 0, sizeof(old_attr));
+	int rc = tcgetattr(STDIN_FILENO, &old_attr);
+	assert(0 == rc);
+	attr = old_attr;
+	
+	attr.c_lflag &= ~ECHO; // hide input characters
+	rc = tcsetattr(STDIN_FILENO, TCSANOW, &attr);
+	assert(0 == rc);
+
+	char *line = NULL;
+	while((line = fgets(secret, size, stdin)))
+	{
+		printf("\n");
+		cb_secret = strlen(line);
+		if(cb_secret <= 0) {
+			break;
+		}
+		if(line[cb_secret - 1] == '\n') --cb_secret;
+		
+		if(cb_secret != 0) break;	
+	}
+	
+	// restore flags
+	rc = tcsetattr(STDIN_FILENO, TCSANOW, &old_attr);	
+	assert(0 == rc);
+	
+	if(cb_secret < 0) {
+		perror("fgets() failed.");
+	}
+	return cb_secret;
 }
 
 

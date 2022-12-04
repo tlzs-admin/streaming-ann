@@ -94,6 +94,7 @@ typedef char * string;
  */
 
 
+ssize_t read_password_stdin(char secret[], size_t size);
 
 #ifdef __cplusplus
 }
