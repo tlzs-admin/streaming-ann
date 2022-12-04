@@ -72,8 +72,8 @@ static void on_license_sign(SoupServer *server, SoupMessage *msg, const char *pa
 	status = license_manager_sign(license_mgr, record, sig, &cb_sig);
 	server_unlock();
 	
-	if(status != license_status_ok) {
-		soup_message_set_status(msg, SOUP_STATUS_BAD_GATEWAY);
+	if(status != license_status_signed) {
+		soup_message_set_status(msg, SOUP_STATUS_BAD_REQUEST);
 		return;
 	}
 	

@@ -8,7 +8,7 @@ license_server="http(s)://server_ip:port"
 ### verify signature
 
     cat license/license.dat sig.dat > license_sig.dat
-    curl -H "Content-type: application/octet-stream" -X POST --data-binary "@license_sig.dat" http://localhost:8443/license/verify
+    curl -H "Content-type: application/octet-stream" -X POST --data-binary "@license_sig.dat" ${license_server}/license/verify
 
 
 

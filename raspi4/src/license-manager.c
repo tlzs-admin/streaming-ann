@@ -183,7 +183,7 @@ static ssize_t query_cpu_serial(unsigned char serial[static 16], size_t size)
 		char buf[1024] = "";
 		char *line = fgets(buf, sizeof(buf) - 1, fp);
 		if(line) {
-			int cb_line = strlen(line);
+			cb_line = strlen(line);
 			if(cb_line > 0 && line[cb_line - 1] == '\n') line[--cb_line] = '\0';
 			if(cb_line > 0) {
 				if(cb_line > size) cb_line = size;
@@ -339,7 +339,7 @@ enum license_status license_manager_sign(struct license_manager *license,
 	status = secp256k1_ecdsa_signature_serialize_der(license->secp, signature_der, p_signature_length, &sig);
 	if(status != 1) return license_status_failed;
 	
-	return license_status_ok;
+	return license_status_signed;
 }
 
 enum license_status license_manager_verify(struct license_manager *license, 
@@ -395,14 +395,18 @@ void license_record_dump(const struct license_record *record, FILE *fp)
 		memset(t, 0, sizeof(t));
 		localtime_r((time_t *)&record->issued_at, t);
 		strftime(sz_time, sizeof(sz_time), RFC2822_COMPLIANT_FMT, t);
-		printf("issued at: %s\n", sz_time);
+		fprintf(fp, "issued at: %s\n", sz_time);
 	}
 	
 	if(record->expires_at > 0) {
 		memset(t, 0, sizeof(t));
 		localtime_r((time_t *)&record->expires_at, t);
 		strftime(sz_time, sizeof(sz_time), RFC2822_COMPLIANT_FMT, t);
-		printf("expires at: %s\n", sz_time);
+		fprintf(fp, "expires at: %s\n", sz_time);
+	}
+	
+	if(record->cb_serial > 0) {
+		fprintf(stderr, "serial: %.*s\n", (int)record->cb_serial, record->serial);
 	}
 	return;
 }
@@ -492,41 +496,56 @@ int main(int argc, char **argv)
 	}
 	license_record_dump(record, stderr);
 	
+	struct license_manager *admin = NULL;
+	struct license_manager *client = NULL;
+	
 	unsigned char ca_privkey[32] = { 0 };
 	unsigned char ca_pubkey[64] = { 0 };
 	
-	ssize_t cb = load_ca_privkey(ca_privkey, NULL);
-	assert(cb == 32);
+	ssize_t cb = 0;
+	cb = load_ca_privkey(ca_privkey, NULL);
+	if(cb == 32) {
+		admin = license_manager_new(NULL);
+		license_manager_load_credentials(admin, ca_privkey, NULL);
+	}
 	
 	cb = load_ca_pubkey(ca_pubkey, NULL);
-	assert(cb == 64);
-	
-	struct license_manager *admin = license_manager_new(NULL);
-	struct license_manager *client = license_manager_new(NULL);
-	
-	license_manager_load_credentials(admin, ca_privkey, NULL);
-	license_manager_load_credentials(client, NULL, ca_pubkey);
+	if(cb == 64) {
+		client = license_manager_new(NULL);
+		license_manager_load_credentials(client, NULL, ca_pubkey);
+	}
 
 	unsigned char sig[100] = "";
-	size_t cb_sig = sizeof(sig);
+	size_t cb_sig = 0;
 	
 	// test sign
-	status = license_manager_sign(admin, record, sig, &cb_sig);
-	printf("status: %d\n", status);
-	assert(status == license_status_ok);
-	
-	fprintf(stderr, "signature(DER): ");
-	dump_hex2(sig, cb_sig, stderr);
-	
+	if(admin) {
+		cb_sig = sizeof(sig);
+		status = license_manager_sign(admin, record, sig, &cb_sig);
+		printf("sign status: %d\n", status);
+		assert(status == license_status_signed);
+		
+		fprintf(stderr, "signature(DER): ");
+		dump_hex2(sig, cb_sig, stderr);
+	}
 	
 	// test verify
-	status = license_manager_verify(client, record, sig, cb_sig);
-	printf("verify status: %d\n", status);
-	assert(status == license_status_verified);
+	if(client) {
+		const char *sig_file = "sig.dat";
+		if(0 == check_file(sig_file)) {
+			unsigned char *p_data = sig;
+			cb_sig = load_binary_data(sig_file, &p_data);
+		}
+		
+		if(cb_sig > 0) {
+			status = license_manager_verify(client, record, sig, cb_sig);
+			printf("verify status: %d\n", status);
+			assert(status == license_status_verified);
+		}
+	}
 	
-	
-	license_manager_free(admin);
-	license_manager_free(client);
+	if(admin) license_manager_free(admin);
+	if(client) license_manager_free(client);
 
 	return 0;
 }

@@ -13,7 +13,10 @@ enum license_status
 {
 	license_status_failed = -1,
 	license_status_ok = 0,
+	
 	license_status_verified = 1, 
+	license_status_signed = 1,
+	
 	license_status_verify_failed = 2,
 };
 
