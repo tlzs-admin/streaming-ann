@@ -486,9 +486,7 @@ int main(int argc, char **argv)
 	assert(0 == rc);
 	
 	rc = alert_server_run(alert_server);
-	
-	
-	
+
 	alert_server_context_cleanup(alert_server);
 	return rc;
 }

@@ -37,6 +37,24 @@ static pthread_mutex_t s_mutex = PTHREAD_MUTEX_INITIALIZER;
 #define server_lock()   pthread_mutex_lock(&s_mutex)
 #define server_unlock() pthread_mutex_unlock(&s_mutex)
 
+
+static void on_get_root_ca(SoupServer *server, SoupMessage *msg, const char *path, GHashTable *query, SoupClientContext *client, gpointer user_data)
+{
+	printf("path: %s\n", path);
+	static const char *mime_type = "application/octet-stream";
+	const unsigned char *pubkey = user_data;
+	assert(pubkey);
+	
+	if(msg->method != SOUP_METHOD_GET) {
+		soup_message_set_status(msg, SOUP_STATUS_NOT_FOUND);
+		return;
+	}
+	
+	soup_message_set_response(msg, mime_type, SOUP_MEMORY_COPY, (char *)pubkey, 64);
+	soup_message_set_status(msg, SOUP_STATUS_OK);
+	return;
+}
+
 static void on_license_sign(SoupServer *server, SoupMessage *msg, const char *path, GHashTable *query, SoupClientContext *client, gpointer user_data)
 {
 	static const char *mime_type = "application/octet-stream";
@@ -198,6 +216,7 @@ int main(int argc, char **argv)
 	SoupServer *server = soup_server_new(SOUP_SERVER_SERVER_HEADER, "license-srv/v0.1.0", NULL);
 	soup_server_add_handler(server, "/license/sign", on_license_sign, sign_mgr, NULL);
 	soup_server_add_handler(server, "/license/verify", on_license_verify, verify_mgr, NULL);
+	soup_server_add_handler(server, "/root_ca", on_get_root_ca, pubkey, NULL);
 	
 	gboolean ok = soup_server_listen_all(server, port, 0, &gerr);
 	if(gerr) {
@@ -206,6 +225,15 @@ int main(int argc, char **argv)
 		gerr = NULL;
 	}
 	assert(ok);
+	
+	GSList *uris = soup_server_get_uris(server);
+	for(GSList *uri = uris; NULL != uri; uri = uri->next)
+	{
+		fprintf(stderr, "listening on: %s\n", soup_uri_to_string(uri->data, FALSE));
+		soup_uri_free(uri->data);
+		uri->data = NULL;
+	}
+	g_slist_free(uris);
 	
 	GMainLoop *loop = g_main_loop_new(NULL, FALSE);
 	g_main_loop_run(loop);

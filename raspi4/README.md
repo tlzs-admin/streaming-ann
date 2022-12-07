@@ -12,3 +12,5 @@ license_server="http(s)://server_ip:port"
 
 
 
+### get root_ca
+	curl ${license_server}/root_ca -o keys/ca-pubkey.dat
