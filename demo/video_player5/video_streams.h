@@ -56,6 +56,7 @@ struct video_stream
 	int face_masking_flag;
 	int detection_mode;
 	
+	const char *alert_server_url;
 };
 
 struct video_stream *video_stream_init(struct video_stream *stream, json_object *jstream, struct app_context *app);

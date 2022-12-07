@@ -245,6 +245,7 @@ static int video_stream_load_config(struct video_stream *stream, json_object *js
 	stream->image_height = height;
 	stream->ai_enabled = json_get_value(jinput, int, ai_enabled);
 	stream->detection_mode = json_get_value(jstream, int, detection_mode);
+	stream->alert_server_url = json_get_value(jstream, string, alert_server_url);
 	
 	int num_ai_engines = 0;
 	ok = json_object_object_get_ex(jstream, "ai-engines", &jai_engines);

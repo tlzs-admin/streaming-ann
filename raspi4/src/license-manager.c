@@ -42,7 +42,7 @@
 #include <netdb.h>
 
 #include "utils.h"
-#include "utils/utils_crypto.h"
+#include "utils_crypto.h"
 
 static void dump_mac_addr(const unsigned char mac_addr[static 6], FILE *fp)
 {

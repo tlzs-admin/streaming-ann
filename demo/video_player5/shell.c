@@ -35,6 +35,7 @@
 #include "shell_private.c.impl"
 #include "utils.h"
 #include "video_streams.h"
+#include <curl/curl.h>
 
 
 static GdkRGBA s_default_fg = { .red = 0.0, .green = 0.0, .blue = 1.0, .alpha = 1.0 };
@@ -546,6 +547,33 @@ static void draw_face_masking(cairo_t *cr, double width, double height,
 	return;
 }
 
+static int alert_client_notify(struct video_stream *stream, const char *server_url)
+{
+	static FILE *alert_log;
+	if(NULL == alert_log) {
+		alert_log = fopen("alerts.log", "a+");
+	}
+	FILE *fp = alert_log;
+	if(NULL == fp) fp = stderr;
+	
+	CURL *curl = curl_easy_init();
+	curl_easy_setopt(curl, CURLOPT_URL, server_url);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
+	
+	CURLcode ret = curl_easy_perform(curl);
+	long response_code = -1;
+	
+	if(ret == CURLE_OK) {
+		ret = curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
+		fprintf(fp, "%s(): response_code = %ld\n", __FUNCTION__, response_code);
+		
+	}else {
+		fprintf(fp, "ERROR: %s(): %s\n", __FUNCTION__, curl_easy_strerror(ret)); 
+	}
+	curl_easy_cleanup(curl);
+	return ret;
+}
+
 static void draw_leaving_behind(cairo_t *cr, double width, double height,
 	int font_size, 
 	ssize_t num_detections, const struct darknet_detection * dets, 
@@ -634,6 +662,11 @@ static void draw_leaving_behind(cairo_t *cr, double width, double height,
 		cairo_set_source_rgba(cr, 1, 0, 0, 1);
 		cairo_set_line_width(cr, height / 20);
 		cairo_stroke(cr);
+		
+		struct video_stream *stream = viewer->stream;
+		if(stream && stream->alert_server_url) {
+			alert_client_notify(stream, stream->alert_server_url);
+		}
 	}
 }
 

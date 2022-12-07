@@ -38,9 +38,21 @@ VIDEO_PLAYER4_SOURCES := video-player4.c $(wildcard video_player4/*.c)
 VIDEO_PLAYER4_OBJECTS := $(VIDEO_PLAYER4_SOURCES:%.c=%.o)
 
 VIDEO_PLAYER5_SOURCES := video-player5.c streaming-proxy.c $(wildcard video_player5/*.c)
-VIDEO_PLAYER5_OBJECTS := $(VIDEO_PLAYER5_SOURCES:%.c=%.o)
+LICENSE_MANAGER_SOURCES := ../raspi4/src/license-manager.c 
 
+VIDEO_PLAYER5_OBJECTS := $(VIDEO_PLAYER5_SOURCES:%.c=%.o) 
+LICENSE_MANAGER_OBJECTS := $(LICENSE_MANAGER_SOURCES:%.c=%.o) 
+
+LICENSE_MANAGER_INCLUDE := ../raspi4/include
 CV_WRAPPER_OBJECTS := ../src/cpps/cvmat-wrapper.o.dyn ../src/cpps/cvface-wrapper.o.dyn
+
+
+UTILS_CFLAGS = $(CFLAGS) $(shell pkg-config --cflags gio-2.0 glib-2.0 gstreamer-app-1.0)
+UTILS_LDFLAGS = $(UTILS_CFLAGS)
+UTILS_LIBS = -lm -lpthread -ljson-c -ljpeg -lpng -lcairo -ldl $(shell pkg-config --libs gio-2.0 glib-2.0 gstreamer-app-1.0)
+
+UTILS_SOURCES := ../utils/utils.c ../utils/crypto.c
+UTILS_OBJECTS := $(UTILS_SOURCES:%.c=%.o)
 
 all: languages $(TARGETS)
 
@@ -67,10 +79,13 @@ video-player4: $(VIDEO_PLAYER4_OBJECTS) $(COMMON_OBJECTS)
 
 
 $(VIDEO_PLAYER5_OBJECTS): %.o : %.c $(DEPS)
-	$(CC) -o $@ -c $< $(CFLAGS) $(shell pkg-config --cflags libsoup-2.4)
+	$(CC) -o $@ -c $< $(CFLAGS) -I$(LICENSE_MANAGER_INCLUDE) $(shell pkg-config --cflags libsoup-2.4) 
+	
+$(LICENSE_MANAGER_OBJECTS): %.o : %.c $(DEPS)
+	$(CC) -o $@ -c $< -I$(LICENSE_MANAGER_INCLUDE) -I../utils -I../include 
 
-video-player5: $(VIDEO_PLAYER5_OBJECTS) $(COMMON_OBJECTS)
-	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS) $(shell pkg-config --libs libsoup-2.4)
+video-player5: $(VIDEO_PLAYER5_OBJECTS) $(COMMON_OBJECTS) $(LICENSE_MANAGER_OBJECTS) $(UTILS_OBJECTS)
+	$(CC) -o $@ $^ $(LDFLAGS) $(LIBS) $(shell pkg-config --libs libsoup-2.4 gnutls) -lsecp256k1
 
 plugins/libaiplugin-cvface.so : $(CV_WRAPPER_OBJECTS) opencv-plugin.c ../utils/utils.c
 	$(LINKER) -fPIC -shared -pthread -g -Wall -o $@ $^ $(CFLAGS) $(shell pkg-config --cflags --libs opencv4) -lm -lpthread -ljson-c -ldl -lstdc++
@@ -78,6 +93,9 @@ plugins/libaiplugin-cvface.so : $(CV_WRAPPER_OBJECTS) opencv-plugin.c ../utils/u
 $(CV_WRAPPER_OBJECTS) : ../src/cpps/%.o.dyn : ../src/cpps/%.cpp
 	g++ -std=c++11 -fPIC -g -Wall -D_DEBUG -o $@ -c $< $(shell pkg-config --cflags opencv4) 
 
+
+$(UTILS_OBJECTS): %.o: %.c
+	$(CC) -o $@ -c $< $(UTILS_CFLAGS)
 
 .PHONY: clean languages
 

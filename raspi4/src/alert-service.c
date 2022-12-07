@@ -270,9 +270,9 @@ static json_object *generate_default_config(void)
 	
 	json_object *jalerts = json_object_new_array();
 	json_object_object_add(jconfig, "port", json_object_new_int(9119));
-	json_object_object_add(jconfig, "alerts", jalerts);
 	json_object_object_add(jconfig, "interval", json_object_new_int64(60)); // default interval: waiting for 60 seconds to run next alert
 	
+	json_object_object_add(jconfig, "alerts", jalerts);
 	json_object *jalert = NULL;
 	
 	jalert = json_object_new_object();
@@ -289,6 +289,8 @@ static json_object *generate_default_config(void)
 	
 	fprintf(stderr, "%s():\n%s\n", __FUNCTION__, 
 		json_object_to_json_string_ext(jconfig, JSON_C_TO_STRING_PRETTY | JSON_C_TO_STRING_NOSLASHESCAPE));
+	
+	json_object_to_file_ext("alert-server.template.json", jconfig, JSON_C_TO_STRING_PRETTY | JSON_C_TO_STRING_NOSLASHESCAPE);
 	
 	return jconfig;
 }
