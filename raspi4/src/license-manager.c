@@ -104,9 +104,9 @@ static ssize_t query_mac_addrs(struct ifaddr_data **p_addrlist)
 		struct sockaddr_ll *sll = (struct sockaddr_ll *)ifa->ifa_addr;
 		if(sll->sll_hatype != 1) continue; // loopback etc.
 		
-		struct ifaddr_data *addr = &addr_list[num_addrs++];
 		if(NULL == ifa->ifa_name) continue;
-		
+		struct ifaddr_data *addr = &addr_list[num_addrs++];
+
 		strncpy(addr->name, ifa->ifa_name, sizeof(addr->name) - 1);
 		addr->index = sll->sll_ifindex;
 		assert(sll->sll_halen == 6);
@@ -418,7 +418,8 @@ static ssize_t load_ca_privkey(unsigned char privkey[static 32], const char *key
 	ssize_t cb = 0;
 	if(NULL == keyfile) keyfile = ".private/keys/ca-privkey.dat";
 	FILE *fp = fopen(keyfile, "r");
-	assert(fp);
+	if(NULL == fp) return -1;
+	
 	cb = fread(privkey, 1, 32, fp);
 	assert(cb == 32);
 	fclose(fp);
@@ -430,7 +431,8 @@ static ssize_t load_ca_pubkey(unsigned char pubkey[static 64], const char *keyfi
 	ssize_t cb = 0;
 	if(NULL == keyfile) keyfile = "keys/ca-pubkey.dat";
 	FILE *fp = fopen(keyfile, "r");
-	assert(fp);
+	if(NULL == fp) return -1;
+	
 	cb = fread(pubkey, 1, 64, fp);
 	assert(cb == 64);
 	fclose(fp);

@@ -1,6 +1,8 @@
 #!/bin/bash
 
 target=${1-"license-manager"}
+target=$(basename "$target")
+target=${target/.[ch]/}
 
 CC="gcc -std=gnu99 -g -Wall -Iinclude -I../include -I../ -I../widgets "
 #~ LIBS=$(pkg-config --cflags --libs gtk+-3.0 gstreamer-1.0 gstreamer-app-1.0 libcurl)
@@ -22,6 +24,18 @@ case "${target}" in
 			src/license-manager.c \
 			utils/crypto.c utils/utils.c \
 			-lm -lpthread -lsecp256k1 -lgnutls $(pkg-config --cflags --libs libsoup-2.4)
+		;;
+	alert-service)
+		echo "build $target ..."
+		gcc -std=gnu99 -g -Wall -Iinclude -Iutils -I. -I../include \
+			-DTEST_ALERT_SERVICE_ -D_STAND_ALONE \
+			-o test_alert-service src/alert-service.c \
+			-lm -lpthread -lcurl -ljson-c $(pkg-config --cflags --libs libsoup-2.4)
+		;;
+	alert-server)
+		gcc -std=gnu99 -g -Wall -Iinclude -Iutils -I. -I../include \
+			-o alert-server src/alert-server.c src/alert-service.c \
+			-lm -lpthread -lcurl -ljson-c $(pkg-config --cflags --libs libsoup-2.4)
 		;;
 	*)
 		exit 1

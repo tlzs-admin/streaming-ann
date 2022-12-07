@@ -67,6 +67,10 @@ backup/
 !raspi4/*/*.c
 !raspi4/*/*.h
 !raspi4/Makefile
+!raspi4/alert
+!raspi4/alert/*
+!alert
+!alert/*
 
 !motion-jpeg
 !motion-jpeg/*

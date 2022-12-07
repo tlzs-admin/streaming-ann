@@ -1,0 +1,15 @@
+#!/bin/bash
+
+echo "$0"
+
+# DUMMY script for testing
+## play_music_scale
+
+volume=${1-"0.5"}
+keys=( C3 D3 E3 F3 G3 A3 B3 C4 )
+duration=0.5 ## 0.5 seconds
+
+for k in ${keys[@]} 
+do
+	play -qn synth pl $k vol $volume fade 0 .7 $duration
+done

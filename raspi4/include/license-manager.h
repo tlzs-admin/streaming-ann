@@ -24,7 +24,7 @@ struct license_manager;
 struct license_record
 {
 	uint8_t pubkey[64];
-	uint8_t mac_addr[6 + 2]; // padding with 8 bytes
+	uint8_t mac_addr[6 + 2]; // append 2 bytes padding
 	uint32_t cb_serial;
 	uint8_t serial[40];
 	
@@ -38,7 +38,7 @@ void license_record_dump(const struct license_record *record, FILE *fp);
 
 enum license_status license_data_generate_keypair(unsigned char secret[static 32], size_t cb_secret, uint8_t pubkey[static 64]);
 
-struct license_record *license_data_init(struct license_record *record, const uint8_t pubkey[static 64], int64_t issued_at, int64_t expires);
+struct license_record *license_record_init(struct license_record *record, const uint8_t pubkey[static 64], int64_t issued_at, int64_t expires);
 void license_record_clear(struct license_record *record);
 
 ssize_t license_data_ecdh_secret(
