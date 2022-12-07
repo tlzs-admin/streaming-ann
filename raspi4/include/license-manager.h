@@ -3,11 +3,21 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <netdb.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+struct ifaddr_data
+{
+	unsigned char mac_addr[6];
+	int index;
+	char name[64];
+	struct sockaddr_storage ip_addr; 
+	socklen_t addr_len; 
+};
+ssize_t query_mac_addrs(struct ifaddr_data **p_addrlist);
 
 enum license_status
 {

@@ -7,7 +7,7 @@ CC=gcc -std=gnu99 -D_DEFAULT_SOURCE -D_GNU_SOURCE
 LINKER=gcc -std=gnu99 -D_DEFAULT_SOURCE -D_GNU_SOURCE
 AR=ar cr
 
-CFLAGS = -Wall -I. -I../include -pthread
+CFLAGS = -Wall -I. -I../include -I../utils -pthread
 LIBS = ../lib/libann-utils.a -lm -lpthread -ldl -ljpeg -lcurl
 
 ifeq ($(DEBUG),1)

@@ -69,16 +69,16 @@ static void dump_mac_addr(const unsigned char mac_addr[static 6], FILE *fp)
 
 
 #define IFADDRS_LIST_MAX_SIZE (32)
-struct ifaddr_data
-{
-	unsigned char mac_addr[6];
-	int index;
-	char name[64];
-	struct sockaddr_storage ip_addr; 
-	socklen_t addr_len; 
-};
+//~ struct ifaddr_data
+//~ {
+	//~ unsigned char mac_addr[6];
+	//~ int index;
+	//~ char name[64];
+	//~ struct sockaddr_storage ip_addr; 
+	//~ socklen_t addr_len; 
+//~ };
 
-static ssize_t query_mac_addrs(struct ifaddr_data **p_addrlist)
+ssize_t query_mac_addrs(struct ifaddr_data **p_addrlist)
 {
 	assert(p_addrlist);
 	
