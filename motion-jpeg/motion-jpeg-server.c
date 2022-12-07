@@ -357,6 +357,7 @@ static json_object *generate_default_config(void)
 	return jconfig;
 }
 
+#if 0
 static int update_channel(struct video_source_common *video, const struct video_frame *frame, void *user_data)
 {
 	struct motion_jpeg_channel *channel = user_data;
@@ -406,3 +407,4 @@ int main(int argc, char **argv)
 	
 	return rc;
 }
+#endif

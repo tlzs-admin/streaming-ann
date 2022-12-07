@@ -222,14 +222,18 @@ struct license_record *license_record_init(struct license_record *record, const 
 	
 	struct ifaddr_data *addr_list = NULL;
 	ssize_t num_addrs = query_mac_addrs(&addr_list);
+	fprintf(stderr, "== %s(): num_addrs=%ld\n", __FUNCTION__, (long)num_addrs);
 	for(ssize_t i = 0; i < num_addrs; ++i) {
 		struct ifaddr_data *addr = &addr_list[i];
+		fprintf(stderr, "addrs[%d]: name=%s, mac_addr=", (int)i, addr->name);
+		dump_mac_addr(addr->mac_addr, stderr);
+		fprintf(stderr, "\n");
 		if(strncasecmp(addr->name, "eth", 3) == 0 
-			|| strncasecmp(addr->name, "en", 2 == 0)
+			|| strncasecmp(addr->name, "en", 2) == 0
 			|| strncasecmp(addr->name, "wlp", 3) == 0) {
-			//~ fprintf(stderr, "default interface: %s, mac_addr: ", addr->name); dump_mac_addr(addr->mac_addr, stderr);  
-			//~ fprintf(stderr, ", ip_addr: "); dump_ip_addr((struct sockaddr *)&addr->ip_addr, addr->addr_len, stderr);
-			//~ fprintf(stderr, "\n");
+			fprintf(stderr, "default interface: %s, mac_addr: ", addr->name); dump_mac_addr(addr->mac_addr, stderr);  
+			//fprintf(stderr, ", ip_addr: "); dump_ip_addr((struct sockaddr *)&addr->ip_addr, addr->addr_len, stderr);
+			fprintf(stderr, "\n");
 			memcpy(record->mac_addr, addr->mac_addr, 6);
 			break;
 		}
@@ -237,7 +241,7 @@ struct license_record *license_record_init(struct license_record *record, const 
 	
 	// query cpu serial number (raspi only)
 	record->cb_serial = query_cpu_serial(record->serial, sizeof(record->serial));
-	
+	free(addr_list);
 	return record;
 }
 void license_record_clear(struct license_record *record);

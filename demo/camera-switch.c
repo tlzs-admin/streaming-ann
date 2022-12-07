@@ -40,6 +40,8 @@
 #include "video_source_common.h"
 #include "img_proc.h"
 
+#include "motion-jpeg.h"
+
 
 static inline int64_t get_time_ms(clockid_t clock_id)
 {
@@ -82,6 +84,9 @@ struct camera_manager
 	int64_t begin_ticks;
 	int64_t interval;
 	
+	struct motion_jpeg_server *mjpeg_server;
+	struct motion_jpeg_channel *channel;
+	
 	ssize_t camera_index;
 	
 	// private data
@@ -111,6 +116,22 @@ void camera_manager_free(struct camera_manager *mgr);
 /******************************************************************************
  * camera_manager
 ******************************************************************************/
+static void draw_frame(cairo_t *cr, struct video_frame *frame, double width, double height, json_object *jresult)
+{
+	if(NULL == jresult) {
+		cairo_set_source_rgb(cr, 1, 1, 0);
+		cairo_set_font_size(cr, height / 20);
+		char text[100] = "";
+		snprintf(text, sizeof(text) - 1, "frame_number: %ld", (long)frame->frame_number);
+		cairo_move_to(cr, 20, height / 20 + 10);
+		cairo_show_text(cr, text);
+		return;
+	}
+	
+	///< @todo draw ai results
+	return;
+}
+
 static void upload_finished(SoupSession *session, SoupMessage *msg, gpointer user_data)
 {
 	struct camera_manager *mgr = user_data;
@@ -123,8 +144,61 @@ static void upload_finished(SoupSession *session, SoupMessage *msg, gpointer use
 			body?body->data:NULL, body?body->length:0);
 	}
 	
+	json_object *jresult = NULL;
+	enum json_tokener_error jerr = json_tokener_error_parse_eof;
+	if(body && body->data && body->length > 0) {
+		json_tokener *jtok = json_tokener_new();
+		jresult = json_tokener_parse_ex(jtok, body->data, body->length);
+		jerr = json_tokener_get_error(jtok);
+		json_tokener_free(jtok);
+	}
+	
+	
 	struct video_frame *current_frame = mgr->current_frame;
 	mgr->current_frame = NULL;
+	
+	if(current_frame && current_frame->data && current_frame->length > 0) {
+		bgra_image_t bgra[1];
+		memset(bgra, 0, sizeof(bgra));
+		
+		int rc = bgra_image_from_jpeg_stream(bgra, current_frame->data, current_frame->length);
+		assert(0 == rc);
+		
+		
+		cairo_surface_t *surface = cairo_image_surface_create_for_data(bgra->data,
+			CAIRO_FORMAT_RGB24, 
+			bgra->width, bgra->height, bgra->width * 4);
+		if(surface) {
+			cairo_t *cr = cairo_create(surface);
+			
+			draw_frame(cr, current_frame, bgra->width, bgra->height, jresult);
+			cairo_destroy(cr);
+			cairo_surface_destroy(surface);
+		}
+		
+		
+		struct motion_jpeg_channel *channel = mgr->channel;
+		if(channel) {
+			struct video_frame *frame = calloc(1, sizeof(*frame));
+			++frame->refs;
+			frame->width = bgra->width;
+			frame->height = bgra->height;
+			frame->length = bgra_image_to_jpeg_stream(bgra, &frame->data, 95);
+			frame->type = video_frame_type_jpeg;
+			frame->frame_number = current_frame->frame_number;
+			channel->update_frame(channel, frame);
+			channel->unref_frame(channel, frame);
+		}
+		bgra_image_clear(bgra);
+	}
+	
+	if(jresult) {
+		fprintf(stderr, "jerr=%d, result: %s\n", (int)jerr,
+			json_object_to_json_string_ext(jresult, JSON_C_TO_STRING_PRETTY));
+		json_object_put(jresult);
+		exit(0);
+	}
+	
 	mgr->unref_frame(mgr, current_frame);
 	return;
 }
@@ -241,21 +315,72 @@ struct camera_manager *camera_manager_new_from_config(const char *conf_file, voi
 	
 	mgr->interval = 10; // default switch interval: 10 seconds
 	
+	json_object *jconfig = NULL;
 	if(NULL == conf_file) conf_file = "camera-switch.json";
-	json_object *jconfig = json_object_from_file(conf_file);
-	if(NULL == jconfig) {
+	
+	if(0 != check_file(conf_file)) {
 		jconfig = generate_default_config();
 		assert(jconfig);
 		json_object_to_file_ext(conf_file, jconfig, JSON_C_TO_STRING_PRETTY | JSON_C_TO_STRING_NOSLASHESCAPE);
+	}else {
+		json_tokener *jtok = json_tokener_new();
+		enum json_tokener_error jerr = json_tokener_error_parse_eof;
+		
+		FILE * fp = fopen(conf_file, "r");
+		assert(fp);
+		
+		char buf[1024] = "";
+		char *line = NULL;
+		int line_number = 0;
+		while((line = fgets(buf, sizeof(buf) -1, fp)))
+		{
+			++line_number;
+			int cb_line = strlen(line);
+			if(cb_line < 0) break;
+			
+			jconfig = json_tokener_parse_ex(jtok, line, cb_line);
+			jerr = json_tokener_get_error(jtok);
+	
+			if(jerr != json_tokener_continue) break;
+			memset(buf, 0, sizeof(buf));
+		}
+		fclose(fp);
+		json_tokener_free(jtok);
+		if(jerr != json_tokener_success) {
+			fprintf(stderr, "line %d: %s, err_msg: %s\n", line_number, buf, json_tokener_error_desc(jerr));
+			exit(1);
+		}
 	}
 	
+	assert(jconfig);
 	const char *server_url = json_get_value(jconfig, string, server_url);
 	assert(server_url);
 	mgr->server_url = server_url;
 	mgr->interval = json_get_value_default(jconfig, int, switch_interval, 10);
 	
+	json_bool ok = 0;
+	json_object *jmotion_jpeg = NULL;
+	ok = json_object_object_get_ex(jconfig, "motion-jpeg", &jmotion_jpeg);
+	if(jmotion_jpeg)
+	{
+		struct motion_jpeg_server *mjpeg_server = motion_jpeg_server_init(NULL, mgr);
+		assert(mjpeg_server);
+		
+		struct motion_jpeg_channel *channel = mjpeg_server->add_channel(mjpeg_server, "default");
+		assert(channel);
+		
+		mgr->mjpeg_server = mjpeg_server;
+		mgr->channel = channel;
+		
+		const char *port = json_get_value_default(jmotion_jpeg, string, port, "8080");
+		struct http_server_context *http = mjpeg_server->http;
+		http->listen(http, NULL, port, 0);
+		
+		rc = http->run(http, 1);
+	}
+	
 	json_object *jcameras = NULL;
-	json_bool ok = json_object_object_get_ex(jconfig, "cameras", &jcameras);
+	ok = json_object_object_get_ex(jconfig, "cameras", &jcameras);
 	assert(ok && jcameras);
 	int num_cameras = json_object_array_length(jcameras);
 	assert(num_cameras < CAMERA_MANAGER_MAX_DEVICES);
