@@ -665,6 +665,8 @@ static int video_init(struct video_source_common *video, const char *uri, int wi
 	int rc = make_launch_command(video->gst_command, sizeof(video->gst_command), type, 
 		video->uri, video->frame_type, 
 		video->width, video->height, video->framerate);
+	printf("gst_command: %s\n", video->gst_command);
+	fflush(stdout);
 	if(rc) {
 		pthread_mutex_unlock(&video->mutex);
 		return -1;

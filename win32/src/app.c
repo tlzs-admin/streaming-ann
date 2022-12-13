@@ -43,8 +43,9 @@
 #include "app.h"
 #include "shell.h"
 #include "utils.h"
+#include "ai-engine.h"
 
-#include "ai-client.h"
+//#include "ai-client.h"
 
 #ifndef debug_printf
 #define debug_printf(fmt, ...) do { \
@@ -55,7 +56,7 @@
 struct shell_context;
 struct ai_engine;
 #define MAX_VIDEO_STREAMS (64)
-#dfeine MAX_AI_ENGINES (16)
+#define MAX_AI_ENGINES (16)
 struct app_private
 {
 	struct app_context *app;
@@ -203,6 +204,7 @@ struct video_source_common *app_get_stream(struct app_context *app, int index)
 ai_engine_t *app_get_ai_engine(struct app_context *app, int index)
 {
 	assert(app && app->priv && index >= 0);
+	struct app_private *priv = app->priv;
 	if(index >= priv->num_engines) return NULL;
 	return priv->engines[index];
 }
