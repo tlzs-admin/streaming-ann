@@ -1,23 +1,27 @@
 /*
  * shell.c
  * 
- * Copyright 2022 chehw <chehw@DESKTOP-K8CSD87>
+ * Copyright 2022 Che Hongwei <htc.chehw@gmail.com>
  * 
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * The MIT License (MIT)
  * 
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy 
+ * of this software and associated documentation files (the "Software"), to deal 
+ * in the Software without restriction, including without limitation the rights 
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell 
+ * copies of the Software, and to permit persons to whom the Software is 
+ * furnished to do so, subject to the following conditions:
  * 
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
- * MA 02110-1301, USA.
+ * The above copyright notice and this permission notice shall be included in all 
+ * copies or substantial portions of the Software.
  * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE 
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, 
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS 
+ * IN THE SOFTWARE.
  * 
  */
 
@@ -67,27 +71,6 @@ static json_object *shell_generate_default_config(void)
 	return jconfig;
 }
 
-static gboolean on_da_draw(GtkWidget *da, cairo_t *cr, struct shell_context *shell)
-{
-	assert(shell && shell->priv);
-	struct shell_private *priv = shell->priv;
-	
-	if(priv->surface && priv->image_width > 0 && priv->image_height > 0) {
-		double width = gtk_widget_get_allocated_width(da);
-		double height = gtk_widget_get_allocated_height(da);
-		
-		double sx = (double)width / priv->image_width;
-		double sy = (double)height / priv->image_height;
-		cairo_scale(cr, sx, sy);
-		cairo_set_source_surface(cr, priv->surface, 0, 0);
-		cairo_paint(cr);
-		return FALSE;
-	}
-	cairo_set_source_rgb(cr, 0, 0, 0);
-	cairo_paint(cr);
-	return FALSE;
-}
-
 static int shell_init(struct shell_context *shell, json_object *jconfig)
 {
 	assert(shell && shell->priv);
@@ -112,17 +95,16 @@ static int shell_init(struct shell_context *shell, json_object *jconfig)
 	
 	GtkWidget *grid = gtk_grid_new();
 	gtk_container_add(GTK_CONTAINER(window), grid);
-	GtkWidget *da = gtk_drawing_area_new();
-	gtk_widget_set_size_request(da, 320, 180);
-	gtk_widget_set_hexpand(da, TRUE);
-	gtk_widget_set_vexpand(da, TRUE);
-	gtk_grid_attach(GTK_GRID(grid), da, 0, 0, 1, 1);
+	
+	struct da_panel *panel = da_panel_init(NULL, 640, 480, shell);
+	assert(panel);
+	priv->panels[0] = panel;
+	priv->num_panels = 1;
+	gtk_grid_attach(GTK_GRID(grid), panel->frame, 0, 0, 1, 1);
 	
 	priv->window = window;
 	priv->header_bar = header_bar;
 	
-	priv->da = da;
-	g_signal_connect(da, "draw", G_CALLBACK(on_da_draw), shell);
 	g_signal_connect_swapped(window, "destroy", G_CALLBACK(shell->stop), shell);
 	if(shell->on_init_windows) return shell->on_init_windows(shell, shell->user_data);
 	
@@ -168,41 +150,32 @@ static gboolean on_update_frame(struct idle_data *data)
 	struct video_frame *frame = data->frame;
 	
 	struct shell_private *priv = shell->priv;
+	struct da_panel *panel = priv->panels[0];
+	assert(panel);
 	
 	if(frame && frame->data) {
 		assert(frame->type == video_frame_type_bgra);
-		assert(frame->length > 0);
-		
-		cairo_surface_t *surface = priv->surface;
-		if(NULL == priv->surface || priv->image_width != frame->width || priv->image_height != frame->height)
-		{
-			priv->surface = NULL;
-			if(surface) {
-				cairo_surface_destroy(surface);
-				surface = NULL;
-			}
-			unsigned char *bgra_data = realloc(priv->bgra_data, frame->length);
-			assert(bgra_data);
-			memcpy(bgra_data, frame->data, frame->length);
-			
-			surface = cairo_image_surface_create_for_data(bgra_data, CAIRO_FORMAT_RGB24,
-				frame->width, frame->height, frame->width * 4);
-			assert(surface && cairo_surface_status(surface) == CAIRO_STATUS_SUCCESS);
-			priv->surface = surface;
-			priv->bgra_data = bgra_data;
-			priv->image_height = frame->height;
-			priv->image_width = frame->width;
-		}else {
-			memcpy(priv->bgra_data, frame->data, frame->length);
-			cairo_surface_mark_dirty(surface);
-		}
-		gtk_widget_queue_draw(priv->da);
+		assert(frame->data && frame->length > 0);
+		assert(frame->width > 0 && frame->height > 0);
+		da_panel_update_frame(panel, frame->data, frame->width, frame->height);
 	}
 	
 	shell_lock(shell);
 	shell->priv->busy = 0;
 	shell_unlock(shell);
 	return G_SOURCE_REMOVE;
+}
+
+
+static void * process_frame_thread(void *user_data)
+{
+	int rc = 0;
+	
+	
+	pthread_exit((void *)(intptr_t)rc);
+#ifdef _WIN32
+	return (void *)(intptr_t)rc;
+#endif
 }
 
 static int on_new_frame(struct video_source_common *video, const struct video_frame *frame, void *user_data)
@@ -225,7 +198,6 @@ static int on_new_frame(struct video_source_common *video, const struct video_fr
 	
 	return 0;
 }
-
 
 static int shell_run(struct shell_context *shell)
 {

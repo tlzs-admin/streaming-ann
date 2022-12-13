@@ -80,4 +80,9 @@ backup/
 
 !win32
 !win32/*.sh
-
+!win32/src
+!win32/src/*.c
+!win32/src/*.h
+!win32/include
+!win32/include/*.h
+!win32/Makefile

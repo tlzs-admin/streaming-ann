@@ -142,31 +142,40 @@ enum video_source_type video_source_type_from_uri(const char * uri, int * p_subt
 	return type;
 }
 
+#ifdef _WIN32
+#include <windows.h>
+#define sleep(s) Sleep((s) * 1000)
+#endif 
 
 ssize_t youtube_uri_parse(const char * youtube_url, char embed_uri[static 4096], size_t size)
 {
 	static const char * fmt = "youtube-dl " 
-		" --format 'best[ext=mp4][protocol=https][height<=480]/best' "
-		" --get-url '%s' ";
-		
+		" --format \"best[ext=mp4][protocol=https][height<=480]/best\" "
+		" --get-url \"%s\"";
+	
+	size_t cb = 0;	
 	char command[8192] = "";
-	snprintf(command, sizeof(command), fmt, youtube_url);
+	cb = snprintf(command, sizeof(command), fmt, youtube_url);
+	assert(cb > 0);
+	
+	printf("command: %s\n", command);
 	FILE * fp = popen(command, "r");
-	if(NULL == fp) return -1;
+	if(NULL == fp) {
+		perror("youtube_uri_parse");
+		return -1;
+	}
 	
 	char * uri = fgets(embed_uri, size, fp);
 	int rc = pclose(fp);
 	
 	(void)(rc);
-	
-	ssize_t cb = 0;
+
 	if(uri) {
 		cb = strlen(uri);
 		while(cb > 0 && (uri[cb - 1] == '\n' || uri[cb - 1] == '\r')) uri[--cb] = '\0';
 	}
 	
 	debug_printf("rc=%d, embed_uri: %s\n", rc, uri?uri:"");
-	
 	return cb;
 }
 

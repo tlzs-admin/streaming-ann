@@ -6,6 +6,7 @@
 #include <gtk/gtk.h>
 #include <json-c/json.h>
 #include <pthread.h>
+#include "da_panel.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -23,20 +24,11 @@ struct shell_private
 	GtkWidget *header_bar;
 	GtkWidget *content_area;
 	
+	size_t num_panels;
 	struct da_panel *panels[1];
 	int quit;
 	int timer_id;
 	int busy;
-	
-	GtkWidget *da;
-	int da_width;
-	int da_height;
-	
-	cairo_surface_t *surface;
-	unsigned char *bgra_data;
-	int image_width;
-	int image_height;
-	
 };
 #define shell_lock(shell) pthread_mutex_lock(&shell->priv->mutex)
 #define shell_unlock(shell) pthread_mutex_unlock(&shell->priv->mutex)

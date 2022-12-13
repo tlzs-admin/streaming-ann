@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <gst/gst.h>
 #include <pthread.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {

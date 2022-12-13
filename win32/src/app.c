@@ -1,23 +1,27 @@
 /*
  * app.c
  * 
- * Copyright 2022 chehw <chehw@DESKTOP-K8CSD87>
+ * Copyright 2022 Che Hongwei <htc.chehw@gmail.com>
  * 
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * The MIT License (MIT)
  * 
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy 
+ * of this software and associated documentation files (the "Software"), to deal 
+ * in the Software without restriction, including without limitation the rights 
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell 
+ * copies of the Software, and to permit persons to whom the Software is 
+ * furnished to do so, subject to the following conditions:
  * 
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
- * MA 02110-1301, USA.
+ * The above copyright notice and this permission notice shall be included in all 
+ * copies or substantial portions of the Software.
  * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE 
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, 
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS 
+ * IN THE SOFTWARE.
  * 
  */
 
@@ -40,6 +44,7 @@
 #include "shell.h"
 #include "utils.h"
 
+#include "ai-client.h"
 
 #ifndef debug_printf
 #define debug_printf(fmt, ...) do { \
@@ -50,6 +55,7 @@
 struct shell_context;
 struct ai_engine;
 #define MAX_VIDEO_STREAMS (64)
+#dfeine MAX_AI_ENGINES (16)
 struct app_private
 {
 	struct app_context *app;
@@ -62,7 +68,7 @@ struct app_private
 	size_t num_streams;
 	struct video_source_common *streams[MAX_VIDEO_STREAMS];
 	size_t num_engines;
-	struct ai_engine *engines;
+	struct ai_engine *engines[MAX_AI_ENGINES];
 };
 static struct app_private *app_private_new(struct app_context *app)
 {
@@ -188,6 +194,19 @@ void app_context_cleanup(struct app_context *app)
 	return;
 }
 
+struct video_source_common *app_get_stream(struct app_context *app, int index)
+{
+	assert(app && app->priv && index >= 0 && index < MAX_VIDEO_STREAMS);
+	return app->priv->streams[index];
+}
+
+ai_engine_t *app_get_ai_engine(struct app_context *app, int index)
+{
+	assert(app && app->priv && index >= 0);
+	if(index >= priv->num_engines) return NULL;
+	return priv->engines[index];
+}
+
 #if 1 || defined(TEST_APP_) && defined(_STAND_ALONE)
 #include <gtk/gtk.h>
 #include <gst/gst.h>
@@ -212,7 +231,10 @@ int main(int argc, char **argv)
 	//~ video->settings_changed = 1;
 	//~ rc = relaunch_pipeline(video);
 	
-	rc = video->init(video, "/dev/video0", -1, -1, &(struct framerate_fraction){10,1});
+	const char *stream_uri = "/dev/video0";
+	if(argc > 1) stream_uri = argv[1];
+	
+	rc = video->init(video, stream_uri, -1, -1, &(struct framerate_fraction){10,1});
 	assert(0 == rc);
 	app->priv->streams[app->priv->num_streams++] = video;
 	
@@ -225,10 +247,6 @@ int main(int argc, char **argv)
 	return rc;
 }
 
-struct video_source_common *app_get_stream(struct app_context *app, int index)
-{
-	assert(app && app->priv && index >= 0 && index < MAX_VIDEO_STREAMS);
-	return app->priv->streams[index];
-}
+
 #endif
 
