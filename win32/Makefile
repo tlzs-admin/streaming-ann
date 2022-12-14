@@ -37,7 +37,8 @@ all: do_init $(TARGET)
 
 $(TARGET): $(OBJECTS) $(UTILS_OBJECTS)
 	@echo "utils_objects: $(UTILS_OBJECTS)"
-	$(CC) $(OPTIMIZE) -mwindows -o $@ $^ $(LIBS) $(CFLAGS)
+	$(CC) $(OPTIMIZE) -o $@ $^ $(LIBS) $(CFLAGS)
+	cp $(TARGET).exe install/bin/
 
 $(OBJECTS): $(OBJ_DIR)/%.o : $(SRC_DIR)/%.c
 	$(CC) -o $@ -c $< $(CFLAGS)

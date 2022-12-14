@@ -40,9 +40,22 @@ do
 	cp -rp $lib install/bin/
 done
 
-## copy gst-plugins
+### copy gst-plugins
 cp -rp ${MSYS_BUILD_ROOT}/lib/gstreamer-1.0 install/lib/
 
 cp -rp ${MSYS_BUILD_ROOT}/bin/libopenh264.dll install/bin/
 cp -rp ${MSYS_BUILD_ROOT}/bin/liborc-0.4-0.dll install/bin/
 cp -rp ${MSYS_BUILD_ROOT}/bin/libjson-glib-1.0-0.dll install/bin/
+
+### for lib/gstreamer-1.0/libgstaes.dll
+cp -rp ${MSYS_BUILD_ROOT}/bin/libcrypto-1_1-x64.dll install/bin/
+
+### for lib/gstreamer-1.0/libgstamrnb.dll lib/gstreamer-1.0/libgstamrwbdec.dll
+cp -rp ${MSYS_BUILD_ROOT}/bin/libopencore-amrnb-0.dll install/bin/
+cp -rp ${MSYS_BUILD_ROOT}/bin/libopencore-amrwb-0.dll install/bin/
+
+### lib/gstreamer-1.0/libgstaom.dll
+cp -rp {$MSYS_BUILD_ROOT}/bin/libaom.dll install/bin
+
+### lib/gstreamer-1.0/libgstassrender.dll
+cp -rp {$MSYS_BUILD_ROOT}/bin/libass-9.dll install/bin
