@@ -1,6 +1,7 @@
 DEBUG ?= 1
 OPTIMIZE ?= -O2
 TARGET=bin/app-demo
+WIN32_NO_CONSOLE=1
 
 MSYS_ROOT=/ucrt
 
@@ -21,6 +22,10 @@ LIBS += $(shell pkg-config --libs gnutls)
 ifeq ($(DEBUG),1)
 CFLAGS += -g -D_DEBUG
 OPTIMIZE = -O0
+endif
+
+ifeq ($(WIN32_NO_CONSOLE),1)
+OPTIMIZE += -mwindows
 endif
 
 SRC_DIR=src

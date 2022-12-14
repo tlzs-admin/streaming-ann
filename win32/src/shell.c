@@ -158,7 +158,9 @@ static gboolean on_update_frame(struct idle_data *data)
 		assert(frame->data && frame->length > 0);
 		assert(frame->width > 0 && frame->height > 0);
 		da_panel_update_frame(panel, frame->data, frame->width, frame->height);
+		video_frame_unref(frame);
 	}
+	free(data);
 	
 	shell_lock(shell);
 	shell->priv->busy = 0;

@@ -55,7 +55,7 @@ cp -rp ${MSYS_BUILD_ROOT}/bin/libopencore-amrnb-0.dll install/bin/
 cp -rp ${MSYS_BUILD_ROOT}/bin/libopencore-amrwb-0.dll install/bin/
 
 ### lib/gstreamer-1.0/libgstaom.dll
-cp -rp {$MSYS_BUILD_ROOT}/bin/libaom.dll install/bin
+cp -rp ${MSYS_BUILD_ROOT}/bin/libaom.dll install/bin
 
 ### lib/gstreamer-1.0/libgstassrender.dll
-cp -rp {$MSYS_BUILD_ROOT}/bin/libass-9.dll install/bin
+cp -rp ${MSYS_BUILD_ROOT}/bin/libass-9.dll install/bin

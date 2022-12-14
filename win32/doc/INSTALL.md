@@ -21,7 +21,7 @@
 ### build libsecp256k1
     pacman -S autoconf-wrapper
     pacman -S libtool
-    pacman -S mingw-w64-ucrt-x86_64-libltd1
+    pacman -S mingw-w64-ucrt-x86_64-libltdl
     pacman -S automake-wrapper
 
     git clone https://github.com/bitcoin-core/secp256k1.git
