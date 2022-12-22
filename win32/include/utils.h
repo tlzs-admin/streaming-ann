@@ -3,12 +3,21 @@
 
 #include <stdio.h>
 #include <inttypes.h>
-#if !defined(WIN32) && !defined(_WIN32)
+
+#if defined(_WIN32) || defined(WIN32)
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <iphlpapi.h>
+#include <ws2def.h>
+#include <windows.h>
+#include <io.h>
+#else
+#include <sys/socket.h>
+#include <netdb.h>
+#include <unistd.h>
 #include <endian.h>
 #endif
 
-#include <json-c/json.h>
-#include <fcntl.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -98,6 +107,20 @@ typedef char * string;
 
 
 ssize_t read_password_stdin(char secret[], size_t size);
+
+
+
+
+struct ifaddr_data
+{
+	unsigned char mac_addr[6];
+	int index;
+	char name[64];
+	struct sockaddr_storage ip_addr; 
+	socklen_t addr_len; 
+	int type;
+};
+ssize_t query_mac_addrs(struct ifaddr_data **p_addrlist);
 
 #ifdef __cplusplus
 }

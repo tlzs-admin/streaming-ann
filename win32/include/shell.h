@@ -14,6 +14,7 @@ struct shell_context
 	struct shell_private *priv;
 	struct app_context *app;
 	
+	int (*reload_config)(struct shell_context *shell, json_object *jconfig);
 	int (*init)(struct shell_context *shell, json_object *jconfig);
 	int (*run)(struct shell_context *shell);
 	int (*stop)(struct shell_context *shell);

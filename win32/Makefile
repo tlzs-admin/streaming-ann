@@ -7,6 +7,7 @@ MSYS_ROOT=/ucrt
 
 CC=gcc -std=gnu99 -D_DEFAULT_SOURCE -D_GNU_SOURCE
 CFLAGS = -Wall -Iinclude -DWIN32 -D_WIN32 
+CFLAGS += -Isrc
 LIBS = -lm -lpthread -ljson-c -lcurl -lpng -ljpeg -lcairo
 
 CFLAGS += $(shell pkg-config --cflags gtk+-3.0)
@@ -18,6 +19,8 @@ LIBS += $(shell pkg-config --libs gtk+-3.0)
 LIBS += $(shell pkg-config --libs gstreamer-1.0 gstreamer-app-1.0)
 LIBS += $(shell pkg-config --libs libsoup-2.4)
 LIBS += $(shell pkg-config --libs gnutls)
+LIBS += -liphlpapi
+LIBS += -lsecp256k1
 
 ifeq ($(DEBUG),1)
 CFLAGS += -g -D_DEBUG
@@ -38,7 +41,18 @@ UTILS_DIR=utils
 UTILS_SOURCES := $(wildcard $(UTILS_DIR)/*.c)
 UTILS_OBJECTS := $(UTILS_SOURCES:%.c=%.o)
 
-all: do_init $(TARGET)
+AUX_DIR=auxiliary
+AUX_SOURCES := $(wildcard $(AUX_DIR)/*.c)
+AUX_OBJECTS := $(AUX_SOURCES:%.c=%.o)
+
+## VIDEO_PLAYRE4_DIR = video_player4
+VIDEO_PLAYRE5_DIR = video_player5
+
+VIDEO_PLAYRE5_SOURCES := $(wildcard $(VIDEO_PLAYRE5_DIR)/*.c)
+VIDEO_PLAYRE5_OBJECTS := $(VIDEO_PLAYRE5_SOURCES:%.c=%.o)
+
+
+all: do_init $(TARGET) bin/video-player5
 
 $(TARGET): $(OBJECTS) $(UTILS_OBJECTS)
 	@echo "utils_objects: $(UTILS_OBJECTS)"
@@ -50,6 +64,21 @@ $(OBJECTS): $(OBJ_DIR)/%.o : $(SRC_DIR)/%.c
 	
 $(UTILS_OBJECTS): %.o : %.c
 	$(CC) -o $@ -c $< $(CFLAGS)
+	
+$(AUX_OBJECTS): %.o : %.c
+	$(CC) -o $@ -c $< $(CFLAGS)
+
+$(VIDEO_PLAYRE5_OBJECTS): %.o : %.c
+	$(CC) -o $@ -c $< $(CFLAGS)	
+	
+bin/video-player5: $(VIDEO_PLAYRE5_OBJECTS) video-player5.c \
+        $(OBJ_DIR)/classes_counter.o $(OBJ_DIR)/ai-client.o $(OBJ_DIR)/da_panel.o \
+        $(OBJ_DIR)/video_source_common.o \
+        $(OBJ_DIR)/streaming-proxy.o \
+        $(UTILS_OBJECTS) \
+        $(AUX_DIR)/license-manager.o 
+	$(CC) $(OPTIMIZE) -o $@ $^ $(LIBS) $(CFLAGS) -lWs2_32
+
 
 .PHONY: do_init clean install
 do_init:

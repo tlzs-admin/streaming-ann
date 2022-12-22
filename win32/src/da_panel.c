@@ -93,11 +93,14 @@ struct da_panel * da_panel_init(struct da_panel * panel, int image_width, int im
 	panel->clear(panel);
 	
 	GtkWidget * da = gtk_drawing_area_new();
-	GtkWidget *viewport = gtk_viewport_new(NULL, NULL);
-	GtkWidget *frame = gtk_scrolled_window_new(NULL, NULL);
-	gtk_container_add(GTK_CONTAINER(viewport), da);
-	gtk_container_add(GTK_CONTAINER(frame), viewport);
-		
+	//~ GtkWidget *viewport = gtk_viewport_new(NULL, NULL);
+	//~ GtkWidget *frame = gtk_scrolled_window_new(NULL, NULL);
+	//~ gtk_container_add(GTK_CONTAINER(viewport), da);
+	//~ gtk_container_add(GTK_CONTAINER(frame), viewport);
+	GtkWidget *frame = gtk_frame_new(NULL);
+	gtk_container_add(GTK_CONTAINER(frame), da);
+	gtk_frame_set_shadow_type(GTK_FRAME(frame), GTK_SHADOW_ETCHED_IN);
+	
 	gtk_widget_set_size_request(frame, image_width / 2, image_height / 2);
 	gtk_widget_set_hexpand(frame, TRUE);
 	gtk_widget_set_vexpand(frame, TRUE);
@@ -172,10 +175,10 @@ static gboolean on_da_draw(GtkWidget * da, cairo_t * cr, struct da_panel * panel
 	double sx = (double)panel->width / (double)panel->image_width;
 	double sy = (double)panel->height / (double)panel->image_height;
 	
-	//~ printf("panel(%dx%d), image: %d x %d\n  sx: %f, sy: %f, x_offset: %f\n", 
-		//~ panel->width, panel->height,
-		//~ panel->image_width, panel->image_height,
-		//~ sx, sy, panel->x_offset);
+	printf("panel(%dx%d), image: %d x %d\n  sx: %f, sy: %f, x_offset: %f\n", 
+		panel->width, panel->height,
+		panel->image_width, panel->image_height,
+		sx, sy, panel->x_offset);
 	
 	if(panel->keep_ratio) {
 		cairo_set_source_rgba(cr, 0, 0, 0, 1);

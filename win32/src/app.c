@@ -25,9 +25,6 @@
  * 
  */
 
-#ifdef _WIN32
-#include <windows.h>
-#endif
 
 #include <stdio.h>
 #include <assert.h>
@@ -44,6 +41,12 @@
 #include "shell.h"
 #include "utils.h"
 #include "ai-engine.h"
+
+#ifdef _WIN32
+#include <winsock2.h>
+#include <windows.h>
+#endif
+
 
 //#include "ai-client.h"
 

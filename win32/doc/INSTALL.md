@@ -1,5 +1,11 @@
 ## Dependencies
 
+### gcc (ucrt64)
+    pacman -S mingw-w64-ucrt-x86_64-gcc
+
+### json-c
+    pacman -S mingw-w64-ucrt-x86_64-json-c
+
 ### gtk+-3.0
     pacman -S mingw-w64-ucrt-x86_64-gtk3
 

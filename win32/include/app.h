@@ -15,6 +15,16 @@
 extern "C" {
 #endif
 
+struct ai_engine;
+struct ai_context
+{
+	int id;
+	int enabled;
+	pthread_mutex_t mutex;
+	struct ai_engine *engine;
+	int quit;
+};
+
 struct app_private;
 struct app_context
 {
