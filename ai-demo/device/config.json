@@ -1,0 +1,23 @@
+{
+	"streams": [
+		{ 
+			"name": "channel1",
+			"uri": "/dev/video0", 
+			"width": 640,
+			"height": 480, 
+			"ai_server_url": "http://localhost:9090/ai"
+		},
+		{
+			"name": "channel3",
+			"uri": "https://www.youtube.com/watch?v=3kPH7kTphnE",
+			"width": 640,
+			"height": 480, 
+			"ai_server_url": "http://localhost:9090/ai"
+			
+		}
+	],
+	"webserver": {
+		"enabled": 1,
+		"port": 8080,
+	}
+}
