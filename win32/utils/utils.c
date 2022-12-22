@@ -267,3 +267,156 @@ ssize_t read_password_stdin(char secret[], size_t size)
 }
 #endif
 
+
+#define IFADDRS_LIST_MAX_SIZE (256)
+#if !defined(WIN32) && !defined(_WIN32)
+ssize_t query_mac_addrs(struct ifaddr_data **p_addrlist)
+{
+	assert(p_addrlist);
+	
+	struct ifaddrs *ifaddr = NULL;
+	int rc = 0;
+	
+	ssize_t num_addrs = 0;
+	struct ifaddr_data *addr_list = calloc(IFADDRS_LIST_MAX_SIZE, sizeof(*addr_list));
+	assert(addr_list);
+	
+	rc = getifaddrs(&ifaddr);
+	if(rc == -1) {
+		perror("query_mac_addrs");
+		return -1;
+	}
+
+	for(struct ifaddrs *ifa = ifaddr; (NULL != ifa) && (num_addrs < IFADDRS_LIST_MAX_SIZE); ifa = ifa->ifa_next)
+	{
+		if(NULL == ifa->ifa_addr) continue;
+		int family = ifa->ifa_addr->sa_family;
+		if(family != AF_PACKET) continue; // not mac addr
+		
+		struct sockaddr_ll *sll = (struct sockaddr_ll *)ifa->ifa_addr;
+		if(sll->sll_hatype != 1) continue; // loopback etc.
+		
+		if(NULL == ifa->ifa_name) continue;
+		struct ifaddr_data *addr = &addr_list[num_addrs++];
+
+		strncpy(addr->name, ifa->ifa_name, sizeof(addr->name) - 1);
+		addr->index = sll->sll_ifindex;
+		assert(sll->sll_halen == 6);
+		memcpy(addr->mac_addr, sll->sll_addr, 6);
+	}
+	
+	// query IPv4 addrs
+	for(struct ifaddrs *ifa = ifaddr; (NULL != ifa) && (num_addrs < IFADDRS_LIST_MAX_SIZE); ifa = ifa->ifa_next)
+	{
+		if(NULL == ifa->ifa_addr) continue;
+		int family = ifa->ifa_addr->sa_family;
+		if(family != AF_INET) continue; // not ipv4 addr
+		
+		for(size_t i = 0; i < num_addrs; ++i) {
+			if(strncasecmp(addr_list[i].name, ifa->ifa_name, strlen(addr_list[i].name)) == 0) {
+				memcpy(&addr_list[i].ip_addr, ifa->ifa_addr, sizeof(struct sockaddr_in));
+				addr_list[i].addr_len = sizeof(struct sockaddr_in);
+				break;
+			}
+		}
+	}
+	
+	*p_addrlist = addr_list;
+	freeifaddrs(ifaddr);
+	return num_addrs;
+}
+#else // win32
+static ssize_t get_win32_error_desc(unsigned long err_code, char **p_errmsg, size_t size) 
+{
+	DWORD dwFlags = FORMAT_MESSAGE_FROM_SYSTEM;
+	if(size == 0) dwFlags |= FORMAT_MESSAGE_ALLOCATE_BUFFER;
+	
+	return FormatMessage(dwFlags, NULL, err_code, 
+		MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), 
+		(LPSTR)p_errmsg, size, NULL);
+}
+
+static ssize_t widechar_to_multibyte(LPCWCHAR wtext, ssize_t cb_wtext, char **p_utf8, size_t utf8_size)
+{
+	char *utf8 = *p_utf8;
+	ssize_t cb = 0;
+	UINT code_page = GetACP();
+	if(NULL == utf8) {
+		utf8_size = 0;
+		cb = WideCharToMultiByte(code_page, 0, wtext, cb_wtext, utf8, utf8_size, NULL, NULL);
+		if(cb <= 0) return -1;
+		
+		utf8 = calloc(cb + 1, 1);
+		assert(utf8);
+		*p_utf8 = utf8;
+	}
+	cb = WideCharToMultiByte(code_page, 0, wtext, cb_wtext, utf8, utf8_size, NULL, NULL);
+	fprintf(stderr, "cb=%ld, utf8=%s\n", (long)cb, utf8);
+	return cb;
+}
+
+
+ssize_t query_mac_addrs(struct ifaddr_data **p_addrlist)
+{
+	ULONG size = 0; 
+	ULONG family = AF_UNSPEC;
+	ULONG flags = GAA_FLAG_INCLUDE_ALL_INTERFACES;
+	PIP_ADAPTER_ADDRESSES addrs = NULL;
+	ULONG ret = GetAdaptersAddresses(family, flags, 0, addrs, &size);
+	if(ret != ERROR_BUFFER_OVERFLOW) return -1;
+	
+	assert(size > 0);
+	addrs = LocalAlloc(LPTR, size);
+	assert(addrs);
+	
+	ret = GetAdaptersAddresses(family, flags, 0, addrs, &size);
+	if(ret != ERROR_SUCCESS) {
+		char *err_msg = NULL;
+		ssize_t cb_msg = get_win32_error_desc(ret, &err_msg, 0);
+		if(cb_msg > 0) {
+			fprintf(stderr, "%s() failed: %s\n", __FUNCTION__, err_msg);
+			LocalFree(err_msg);
+		}
+		return -1;
+	}
+	
+	ssize_t count = 0;
+	static const size_t max_list_size = IFADDRS_LIST_MAX_SIZE;
+	struct ifaddr_data * list = calloc(max_list_size, sizeof(*list));
+	assert(list);
+	
+	PIP_ADAPTER_ADDRESSES addr = addrs;
+	for(; NULL != addr; addr = addr->Next) {
+		if(addr->IfType != IF_TYPE_ETHERNET_CSMACD && addr->IfType != IF_TYPE_IEEE80211) continue;
+		struct ifaddr_data *item = &list[count++];
+		item->type = addr->IfType;
+		
+		char friendly_name[1024] = "";
+		char *sz_name = friendly_name;
+		ssize_t cb_name = 0;
+		if(addr->FriendlyName) {
+			cb_name = widechar_to_multibyte(addr->FriendlyName, -1, &sz_name, sizeof(friendly_name));
+		}
+		
+		debug_printf("== AdapterName: %s\n", addr->AdapterName);
+		debug_printf("    IFType: %d\n", (int)addr->IfType);
+		
+		if(addr->PhysicalAddressLength == 6) {
+			memcpy(item->mac_addr, addr->PhysicalAddress, 6);
+		}
+		if(cb_name > 0) {
+			strncpy(item->name, friendly_name, sizeof(item->name));
+		}
+	}
+	
+	if(count > 0) {
+		*p_addrlist	= realloc(list, count * sizeof(*list));
+	}else {
+		free(list);
+	}
+	
+	LocalFree(addrs);
+	return count;
+}
+
+#endif
