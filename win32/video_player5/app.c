@@ -118,12 +118,18 @@ struct app_context *app_context_init(struct app_context *app, void * user_data)
 #else	
 	ssize_t cb = readlink("/proc/self/exe", app->work_dir, sizeof(app->work_dir));
 	assert(cb > 0);
-	char *app_name = basename(app->work_dir);
-	char *work_dir = dirname(app->work_dir);
+	app_name = basename(app->work_dir);
+	work_dir = dirname(app->work_dir);
+	char *p = strrchr(work_dir, '/');
+	if(p && strcasecmp(p, "/bin") == 0) *p = '\0';
 	
 #endif
 
-	if(app_name) strncpy(app->name, app_name, sizeof(app->name));
+	if(app_name) {
+		char *p = strstr(app_name, ".exe");
+		if(p) *p = '\0';
+		strncpy(app->name, app_name, sizeof(app->name));
+	}
 	strncpy(app->title, app->name, sizeof(app->title));
 	
 	chdir(work_dir);
@@ -332,16 +338,20 @@ static int app_init(struct app_context *app, int argc, char **argv)
 	if(NULL == priv) priv = app->priv = app_private_new(app);
 	assert(priv);
 	
-	struct streaming_proxy_context *proxy = streaming_proxy_context_init(NULL, NULL, app);
-	assert(proxy);
-	priv->proxy = proxy;
-	
 	int rc = app_parse_args(app, argc, argv);
 	assert(0 == rc);
 	if(rc) return rc;
-	app->reload_config(app, NULL);
 	
 	json_object *jconfig = app->jconfig;
+	json_object *jproxy = NULL;
+	if(jconfig) {
+		json_object_object_get_ex(jconfig, "stream_proxy", &jproxy);
+	}
+	struct streaming_proxy_context *proxy = streaming_proxy_context_init(NULL, jproxy, app);
+	assert(proxy);
+	priv->proxy = proxy;
+	
+	app->reload_config(app, NULL);
 	priv->shell = shell_context_init(priv->shell, app);
 	assert(priv->shell);
 	
@@ -412,3 +422,4 @@ struct streaming_proxy_context *app_get_streaming_proxy(struct app_context *app)
 	struct app_private *priv = app->priv;
 	return priv->proxy;
 }
+

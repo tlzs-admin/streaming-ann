@@ -6,9 +6,19 @@ WIN32_NO_CONSOLE=1
 MSYS_ROOT=/ucrt
 
 CC=gcc -std=gnu99 -D_DEFAULT_SOURCE -D_GNU_SOURCE
-CFLAGS = -Wall -Iinclude -DWIN32 -D_WIN32 
+CFLAGS = -Wall -Iinclude 
 CFLAGS += -Isrc
 LIBS = -lm -lpthread -ljson-c -lcurl -lpng -ljpeg -lcairo
+
+ifeq ($(OS),Windows_NT)
+CFLAGS += -DWIN32 -D_WIN32
+LIBS += -liphlpapi -lWs2_32
+
+ifeq ($(WIN32_NO_CONSOLE),1)
+OPTIMIZE += -mwindows
+endif
+endif
+
 
 CFLAGS += $(shell pkg-config --cflags gtk+-3.0)
 CFLAGS += $(shell pkg-config --cflags gstreamer-1.0 gstreamer-app-1.0)
@@ -19,16 +29,11 @@ LIBS += $(shell pkg-config --libs gtk+-3.0)
 LIBS += $(shell pkg-config --libs gstreamer-1.0 gstreamer-app-1.0)
 LIBS += $(shell pkg-config --libs libsoup-2.4)
 LIBS += $(shell pkg-config --libs gnutls)
-LIBS += -liphlpapi
 LIBS += -lsecp256k1
 
 ifeq ($(DEBUG),1)
 CFLAGS += -g -D_DEBUG
 OPTIMIZE = -O0
-endif
-
-ifeq ($(WIN32_NO_CONSOLE),1)
-OPTIMIZE += -mwindows
 endif
 
 SRC_DIR=src
@@ -57,7 +62,7 @@ all: do_init $(TARGET) bin/video-player5
 $(TARGET): $(OBJECTS) $(UTILS_OBJECTS)
 	@echo "utils_objects: $(UTILS_OBJECTS)"
 	$(CC) $(OPTIMIZE) -o $@ $^ $(LIBS) $(CFLAGS)
-	cp $(TARGET).exe install/bin/
+	#cp $(TARGET).exe install/bin/
 
 $(OBJECTS): $(OBJ_DIR)/%.o : $(SRC_DIR)/%.c
 	$(CC) -o $@ -c $< $(CFLAGS)
@@ -77,15 +82,15 @@ bin/video-player5: $(VIDEO_PLAYRE5_OBJECTS) video-player5.c \
         $(OBJ_DIR)/streaming-proxy.o \
         $(UTILS_OBJECTS) \
         $(AUX_DIR)/license-manager.o 
-	$(CC) $(OPTIMIZE) -o $@ $^ $(LIBS) $(CFLAGS) -lWs2_32
+	$(CC) $(OPTIMIZE) -o $@ $^ $(LIBS) $(CFLAGS) 
 
 
 .PHONY: do_init clean install
 do_init:
-	mkdir -p $(OBJ_DIR)
+	mkdir -p $(OBJ_DIR) bin install/bin
 
 clean:
-	rm -f $(OBJ_DIR)/*.o $(UTILS_DIR)/*.o $(TARGET)
+	rm -f $(OBJ_DIR)/*.o $(UTILS_DIR)/*.o $(TARGET) $(AUX_DIR)/*.o $(VIDEO_PLAYRE5_DIR)/*.o
 	
 install: $(TARGET)
 	./gtkapp-installer.sh $(TARGET).exe

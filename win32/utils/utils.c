@@ -270,6 +270,13 @@ ssize_t read_password_stdin(char secret[], size_t size)
 
 #define IFADDRS_LIST_MAX_SIZE (256)
 #if !defined(WIN32) && !defined(_WIN32)
+
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <ifaddrs.h>
+#include <net/if.h>
+#include <netpacket/packet.h>	// ==> struct sockaddr_ll
+#include <netdb.h>
 ssize_t query_mac_addrs(struct ifaddr_data **p_addrlist)
 {
 	assert(p_addrlist);

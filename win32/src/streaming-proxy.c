@@ -69,6 +69,29 @@ static struct video_frame * channel_get_frame(struct channel_context *channel)
 	return frame;
 }
 
+static struct video_frame * channel_get_output_frame(struct channel_context *channel)
+{
+	pthread_mutex_lock(&channel->mutex);
+	struct video_frame *frame = channel->output_frame;
+	if(frame) video_frame_addref(frame);
+	pthread_mutex_unlock(&channel->mutex);
+	return frame;
+}
+
+static long channel_set_output_frame(struct channel_context *channel, long frame_number, int width, int height, const unsigned char *jpeg_data, ssize_t cb_jpeg)
+{
+	if(frame_number <= 0) frame_number = 1;
+	struct video_frame *frame = video_frame_new(frame_number, width, height, jpeg_data, cb_jpeg, 0);
+	if(frame) {
+		frame->type = video_frame_type_jpeg;
+		pthread_mutex_lock(&channel->mutex);
+		if(channel->output_frame) video_frame_unref(channel->output_frame);
+		channel->output_frame = frame;
+		pthread_mutex_unlock(&channel->mutex);
+	}
+	return frame_number;
+}
+
 static void channel_unref_frame(struct channel_context *channel, struct video_frame *frame)
 {
 	if(NULL == frame) return;
@@ -119,6 +142,9 @@ struct channel_context *channel_context_new(struct streaming_proxy_context *prox
 	channel->update_frame = channel_update_frame;
 	channel->unref_frame = channel_unref_frame;
 	
+	channel->get_output_frame = channel_get_output_frame;
+	channel->set_output_frame = channel_set_output_frame;
+	
 	return channel;
 }
 void channel_context_free(struct channel_context *channel)
@@ -134,8 +160,8 @@ static json_object *generate_default_config()
 	json_object *jconfig = json_object_new_object();
 	assert(jconfig);
 	
-	json_object_object_add(jconfig, "base_path", json_object_new_string("/default"));
-	json_object_object_add(jconfig, "auto_channels", json_object_new_int(1));
+	json_object_object_add(jconfig, "port", json_object_new_int(8800));
+	json_object_object_add(jconfig, "endpoint_base", json_object_new_string("/default"));
 	
 	json_object *jchannels = json_object_new_array();
 	json_object_object_add(jconfig, "channels", jchannels);
@@ -158,7 +184,6 @@ static int streaming_proxy_load_config(struct streaming_proxy_context *proxy, js
 	proxy->cb_path = snprintf(proxy->base_path, sizeof(proxy->base_path) - 1, "%s", base_path);
 	
 	proxy->port = port;
-	proxy->auto_channels = json_get_value(jconfig, int, auto_channels);
 	return 0;
 }
 
@@ -170,7 +195,7 @@ static void on_channel_get(SoupServer *http, SoupMessage *msg, const char *chann
 		return;
 	}
 	
-	struct video_frame *frame = channel->get_frame(channel);
+	struct video_frame *frame = channel->get_output_frame(channel);
 	if(NULL == frame || frame->frame_number < 0) {
 		soup_message_set_status(msg, SOUP_STATUS_NO_CONTENT);
 		channel->unref_frame(channel, frame);
@@ -319,6 +344,40 @@ static struct channel_context * find_or_register_channel(struct streaming_proxy_
 	return channel;
 }
 
+static void on_web_viewer(SoupServer *server, SoupMessage *msg, const char *path, GHashTable *query, SoupClientContext *client, gpointer user_data)
+{
+	debug_printf("%s(): method=%s, path=%s\n", __FUNCTION__, msg->method, path);
+	struct streaming_proxy_context *web = user_data;
+	assert(web);
+	
+	if(msg->method != SOUP_METHOD_GET || NULL == path || path[0] != '/' || NULL == web->viewer_html) {
+		soup_message_set_status(msg, SOUP_STATUS_BAD_REQUEST);
+		return;
+	}
+	
+	const char *viewer_path = web->viewer_path;
+	if(NULL == viewer_path) viewer_path = "/";
+	
+	if(strcmp(path, viewer_path) == 0) {
+		char *html = NULL;
+		ssize_t cb_html = load_binary_data(web->viewer_html, (unsigned char **)&html);
+		
+		if(cb_html > 0) {
+			SoupMessageHeaders *response_headers = msg->response_headers;
+			soup_message_headers_append(response_headers, "Connection", "close");
+			soup_message_headers_append(response_headers, "Cache-Control", "no-store, no-cache, must-revalidate, pre-check=0, post-check=0, max-age=0");
+			soup_message_headers_append(response_headers, "Pragma", "no-cache");
+			soup_message_set_response(msg, "text/html", SOUP_MEMORY_TAKE, html, cb_html);
+			soup_message_set_status(msg, SOUP_STATUS_OK);
+			return;
+		}
+		if(html) free(html);
+	}
+	
+	soup_message_set_status(msg, SOUP_STATUS_NOT_FOUND);
+	return;
+
+}
 struct streaming_proxy_context *streaming_proxy_context_init(struct streaming_proxy_context *proxy, json_object *jconfig, void *user_data)
 {
 	if(NULL == proxy) proxy = calloc(1, sizeof(*proxy));
@@ -341,6 +400,13 @@ struct streaming_proxy_context *streaming_proxy_context_init(struct streaming_pr
 	assert(proxy->base_path[0] == '/');
 	soup_server_add_handler(http, proxy->base_path, (SoupServerCallback)on_streaming_proxy_handler, proxy, NULL);
 	
+	
+	proxy->viewer_path = json_get_value_default(jconfig, string, viewer_path, "viewer");
+	proxy->viewer_html = json_get_value(jconfig, string, viewer_html);
+	if(proxy->viewer_path) {
+		soup_server_add_handler(http, proxy->viewer_path, on_web_viewer, proxy, NULL);
+	}
+	
 	GError *gerr = NULL;
 	gboolean ok = soup_server_listen_all(http, proxy->port, 0, &gerr);
 	assert(ok && NULL == gerr);
@@ -349,9 +415,12 @@ struct streaming_proxy_context *streaming_proxy_context_init(struct streaming_pr
 	GSList *uris = soup_server_get_uris(http);
 	for(GSList *uri = uris; NULL != uri; uri = uri->next)
 	{
-		fprintf(stderr, "listening on %s\n", soup_uri_to_string(uri->data, FALSE));
+		char *sz_uri = soup_uri_to_string(uri->data, FALSE);
+		fprintf(stderr, "listening on %s\n", sz_uri);
+		g_free(sz_uri);
 		soup_uri_free(uri->data);
 	}
+	fprintf(stderr, "viewer path: %s\n", proxy->viewer_path);
 	g_slist_free(uris);
 	return proxy;
 }

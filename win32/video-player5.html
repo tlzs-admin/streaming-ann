@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>stream viewer</title>
+<meta name="generator" content="Geany 1.37.1" />
+</head>
+<body>
+	<div>
+		<select id="channels" class="channels">
+			<option value="">Select Channel</option>
+		</select>
+	</div>
+	
+	<div>
+		<img id="viewer" class="viewer" />
+	</div>
+</body>
+<script>
+const interval = 300;
+const base_url = "http://192.168.122.68:8800";
+//~ const base_url = window.location.origin;
+const channels = document.getElementById("channels");
+const viewer = document.getElementById("viewer");
+const endpoint_base = "/default/";
+var channel_name = null;
+
+window.onload = function() {
+	for(var i = 0; i < 1; ++i) {
+		let opt = document.createElement("option");
+		opt.value = "channel" + i;
+		opt.text = "Channel " + i;
+		channels.add(opt, null);
+	}
+	channels.onchange = on_channels_selection_changed;
+	channel_name = channels.value;
+	console.log("channel_name: " + channel_name);
+}
+
+function update_frame() {
+	console.log('update_frame(' + channel_name + ')');
+	if(channel_name) {
+		viewer.src = base_url + endpoint_base + channel_name;
+		setTimeout(update_frame, interval);
+	}else {
+		viewer.src = 'data:';
+	}
+}
+
+function on_channels_selection_changed(event) {
+	console.log(self);
+	let target = event.target;
+	console.log(target);
+	
+	let idx = target.selectedIndex;
+	channel_name = target.value;
+	if(channel_name) {
+		setTimeout(update_frame, interval);
+	}
+}
+
+</script>
+</html>

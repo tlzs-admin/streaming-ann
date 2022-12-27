@@ -25,7 +25,7 @@
  * 
  */
 
-/* LANGUAGE=ja_JP:ja ./video-player4 */
+/* LANGUAGE=ja_JP:ja ./video-player5 */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,10 +43,11 @@ static enum license_status check_license(struct app_context *app);
 static struct app_context g_app[1];
 int main(int argc, char ** argv)
 {
+#if defined(WIN32) || defined(_WIN32)
 	WSADATA wsaData;
 	int ret = WSAStartup(MAKEWORD(2,2), &wsaData);
 	assert(0 == ret);
-	
+#endif
 	
 	//ann_plugins_helpler_init(NULL, "plugins", NULL);
 	setlocale(LC_ALL,"");

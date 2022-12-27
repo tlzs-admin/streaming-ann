@@ -41,8 +41,9 @@
 #include "shell.h"
 #include "utils.h"
 #include "ai-engine.h"
+#include <locale.h>
 
-#ifdef _WIN32
+#if defined(WIN32) || defined(_WIN32)
 #include <winsock2.h>
 #include <windows.h>
 #endif

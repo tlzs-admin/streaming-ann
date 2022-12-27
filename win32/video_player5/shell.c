@@ -43,6 +43,7 @@ static GdkRGBA s_default_bg = { .red = 0.7, .green = 0.7, .blue = 0.7, .alpha = 
 static GdkRGBA s_default_face_bg = { .red = 0.7, .green = 0.7, .blue = 0.0, .alpha = 0.9 }; 
 
 ssize_t app_get_streams(struct app_context *app, struct video_stream **p_streams);
+struct streaming_proxy_context *app_get_streaming_proxy(struct app_context *app);
 
 static int shell_reload_config(struct shell_context * shell, json_object * jconfig);
 static int shell_init(struct shell_context * shell, json_object *jconfig);
@@ -502,8 +503,6 @@ static void draw_face_masking(cairo_t *cr, double width, double height,
 			}
 			printf("max_iou: %g\n", max_iou);
 			if(max_iou > 0.5) continue;
-			
-			
 		}
 		
 		const char *class_name = dets[i].class_name;
@@ -749,6 +748,34 @@ static void draw_area_settings(cairo_surface_t * surface, double width, double h
 	return;
 }
 
+static void update_output_channel(struct video_stream *stream, long frame_number, const unsigned char *bgra_data, int width, int height)
+{
+	assert(stream && stream->app);
+	struct app_context *app = stream->app;
+	struct streaming_proxy_context *proxy = app_get_streaming_proxy(app);
+	assert(proxy);
+	
+	struct channel_context *channel = NULL;
+	if(proxy) channel = proxy->find_channel_by_name(proxy, stream->channel_name);
+	assert(channel);
+	
+	if(channel && bgra_data && width > 0 && height > 0) {
+		unsigned char *jpeg = NULL;
+		struct bgra_image bgra[1] = {{
+			.data = (unsigned char *)bgra_data,
+			.width = width,
+			.height = height,
+			.channels = 4,
+		}};
+		ssize_t cb_jpeg = bgra_image_to_jpeg_stream(bgra, &jpeg, 90);
+		if(jpeg && cb_jpeg > 0) {
+			channel->set_output_frame(channel, frame_number, width, height, jpeg, cb_jpeg);
+		}
+		free(jpeg);
+	}
+	return;
+}
+
 static void draw_frame(da_panel_t *panel, const input_frame_t *frame, json_object *jresult, json_object *jcolors, struct stream_viewer *viewer)
 {
 	if(NULL == frame || NULL == frame->data || frame->width < 1 || frame->height < 1) return;
@@ -779,9 +806,9 @@ static void draw_frame(da_panel_t *panel, const input_frame_t *frame, json_objec
 	}
 	
 	draw_ai_result(surface, jresult, jcolors, viewer);
-	
-	
 	gtk_widget_queue_draw(panel->da);
+	
+	update_output_channel(viewer->stream, frame->frame_number, image_data, frame->width, frame->height);
 	
 	viewer->is_busy = 0;
 	return;
@@ -812,7 +839,7 @@ static gboolean on_timeout(struct shell_context *shell)
 	
 	struct video_stream *streams = NULL;
 	ssize_t num_streams = app_get_streams(app, &streams);
-	for(int i = 0; i < 1; ++i) {
+	for(int i = 0; i < num_streams; ++i) {
 		struct video_stream *stream = &streams[i];
 		if(stream->paused) continue;
 		
@@ -846,7 +873,6 @@ static gboolean on_timeout(struct shell_context *shell)
 		draw_frame(panel, bgra_frame, (json_object *)frame->meta_data, jclass_colors, &priv->views[i]);
 		time_elapsed_draw = app_timer_stop(timer);
 		
-		
 		app_timer_start(timer);
 		input_frame_clear_all(frame);
 		input_frame_clear(bgra_frame);
@@ -858,9 +884,6 @@ static gboolean on_timeout(struct shell_context *shell)
 			++s_frame_number,
 			time_elapsed_jpeg_decode, time_elapsed_draw, time_elapsed_cleanup);
 		gtk_header_bar_set_subtitle(GTK_HEADER_BAR(header_bar), title);
-		
-		
 	}
-	while(gtk_events_pending()) gtk_main_iteration();
 	return G_SOURCE_CONTINUE;
 }

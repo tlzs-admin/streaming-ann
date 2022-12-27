@@ -36,6 +36,10 @@ struct channel_context
 	// virtual callbacks
 	void *user_data;
 	int (*on_new_frame)(struct channel_context *channel, struct video_frame *frame, void *user_data);
+	
+	struct video_frame *output_frame;
+	struct video_frame *(*get_output_frame)(struct channel_context *channel);
+	long (*set_output_frame)(struct channel_context *channel, long frame_number, int width, int height, const unsigned char *jpeg_data, ssize_t cb_jpeg);
 };
 
 struct channel_context *channel_context_new(struct streaming_proxy_context *proxy, const char *name, int id, GHashTable *query);
@@ -43,11 +47,18 @@ void channel_context_free(struct channel_context *channel);
 
 
 #define STREAMING_PROXY_MAX_CHANNELS (256)
+struct streaming_proxy_private;
 struct streaming_proxy_context
 {
-	SoupServer *http;
 	void *user_data;
+	struct streaming_proxy_private *priv;
 	
+	const char *viewer_path;
+	const char *viewer_html;
+	char *html;
+	ssize_t cb_html;
+	
+	SoupServer *http;
 	json_object *jconfig;
 	GMainLoop *loop;
 	unsigned int port;
