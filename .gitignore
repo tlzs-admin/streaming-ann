@@ -86,6 +86,7 @@ backup/
 !win32/include
 !win32/include/*.h
 !win32/Makefile
+!win32/*
 
 !ai-demo
 !ai-demo/*

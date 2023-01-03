@@ -116,7 +116,6 @@ static int shell_run(struct shell_context * shell)
 	struct shell_private *priv = shell->priv;
 	
 	if(priv->fps < 1 || priv->fps > 30) priv->fps = 10;
-	
 	priv->timer_id = g_timeout_add(1000 / priv->fps, (GSourceFunc)on_timeout, shell);
 	gtk_main();
 	
@@ -660,8 +659,9 @@ static void draw_leaving_behind(cairo_t *cr, double width, double height,
 		cairo_stroke(cr);
 		
 		struct video_stream *stream = viewer->stream;
-		if(stream && stream->alert_server_url) {
-			alert_client_notify(stream, stream->alert_server_url);
+		for(ssize_t i = 0; i < stream->num_alert_servers; ++i) {
+			if(NULL == stream->alert_server_urls[i]) continue;
+			alert_client_notify(stream, stream->alert_server_urls[i]);
 		}
 	}
 }
@@ -823,7 +823,82 @@ void input_frame_clear_all(input_frame_t *frame)
 	input_frame_clear(frame);
 }
 
+
 gboolean stream_viewer_update_ui(struct stream_viewer * viewer);
+struct shell_context *app_get_shell(struct app_context *app);
+
+//~ gboolean shell_update_frame(gpointer user_data)
+//~ {
+	//~ struct video_stream *stream = user_data;
+	//~ assert(stream);
+	//~ struct app_context *app = stream->app;
+	//~ struct shell_context *shell = app_get_shell(app);
+	//~ struct shell_private *priv = shell->priv;
+	
+	//~ struct video_stream *streams = NULL;
+	//~ ssize_t num_streams = app_get_streams(app, &streams);
+	//~ ssize_t stream_index = -1;
+	//~ for(ssize_t i = 0; i < num_streams; ++i) {
+		//~ if(stream == &streams[i]) {
+			//~ stream_index = i;
+			//~ break;
+		//~ }
+	//~ }
+	//~ if(stream_index < 0 || stream_index >= num_streams) return G_SOURCE_REMOVE;
+	
+	//~ if(stream->paused) return G_SOURCE_REMOVE;
+	//~ input_frame_t frame[1];
+	//~ memset(frame, 0, sizeof(frame));
+	
+	//~ long frame_number = stream->get_frame(stream, 0, frame);
+	//~ if(frame_number < 0 || NULL == frame->data) {
+		//~ input_frame_clear_all(frame);
+		//~ return G_SOURCE_REMOVE;
+	//~ }
+	
+	
+	//~ static long s_frame_number = 0;
+	//~ GtkWidget *header_bar = priv->header_bar;
+	//~ char title[100] = "";
+	
+	//~ assert(frame->type == input_frame_type_jpeg);
+	//~ app_timer_t timer[1];
+	//~ double time_elapsed_jpeg_decode = 0.0;
+	//~ double time_elapsed_draw = 0.0;
+	//~ double time_elapsed_cleanup = 0.0;
+	//~ app_timer_start(timer);
+	
+	//~ input_frame_t bgra_frame[1];
+	//~ memset(bgra_frame, 0, sizeof(bgra_frame));
+	//~ bgra_image_from_jpeg_stream(bgra_frame->bgra, frame->data, frame->length);
+	//~ time_elapsed_jpeg_decode = app_timer_stop(timer);
+	
+	
+	//~ da_panel_t *panel = priv->views[stream_index].panel;
+	//~ json_object *jclass_colors = priv->jclass_colors;
+	//~ if(NULL == jclass_colors) {
+		//~ jclass_colors = priv->jcolors;
+	//~ }
+	//~ app_timer_start(timer);
+	//~ draw_frame(panel, bgra_frame, (json_object *)frame->meta_data, jclass_colors, &priv->views[stream_index]);
+	//~ time_elapsed_draw = app_timer_stop(timer);
+	
+	//~ app_timer_start(timer);
+	//~ input_frame_clear_all(frame);
+	//~ input_frame_clear(bgra_frame);
+	
+	//~ time_elapsed_cleanup = app_timer_stop(timer);
+	//~ // stream_viewer_update_ui(&priv->views[i]);
+	
+	//~ snprintf(title, sizeof(title), "frame: %ld, jpeg_decod=%.3f, draw=%.3f, cleanup=%.3f", 
+		//~ ++s_frame_number,
+		//~ time_elapsed_jpeg_decode, time_elapsed_draw, time_elapsed_cleanup);
+	//~ gtk_header_bar_set_subtitle(GTK_HEADER_BAR(header_bar), title);
+	
+	//~ input_frame_clear_all(frame);
+	//~ return G_SOURCE_REMOVE;
+//~ }
+
 static gboolean on_timeout(struct shell_context *shell)
 {
 	struct app_context *app = shell->app;

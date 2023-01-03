@@ -423,3 +423,10 @@ struct streaming_proxy_context *app_get_streaming_proxy(struct app_context *app)
 	return priv->proxy;
 }
 
+struct shell_context *app_get_shell(struct app_context *app)
+{
+	if(NULL == app || NULL == app->priv) return NULL;
+	struct app_private *priv = app->priv;
+	return priv->shell;
+}
+

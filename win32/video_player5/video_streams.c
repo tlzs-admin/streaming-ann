@@ -83,6 +83,8 @@ static void swap_frame_buffer(struct video_stream *stream)
 }
 
 
+
+gboolean shell_update_frame(gpointer user_data);
 static void * video_stream_thread(void *user_data)
 {
 	int rc = 0;
@@ -124,7 +126,7 @@ static void * video_stream_thread(void *user_data)
 			channel->unref_frame(channel, frame);
 		}
 		frame = channel->get_frame(channel);
-		if(NULL == frame || NULL == frame->data || stream->frame_number >= frame->frame_number) {
+		if(NULL == frame || NULL == frame->data || frame->frame_number < 0) {
 			if(frame) channel->unref_frame(channel, frame);
 			nanosleep(&interval, NULL);
 			continue;
@@ -183,6 +185,7 @@ static void * video_stream_thread(void *user_data)
 			//~ }
 		}
 		swap_frame_buffer(stream);
+		// g_idle_add(shell_update_frame, stream);
 		if(sleep_flags) nanosleep(&interval, NULL);
 		
 	}
@@ -248,8 +251,20 @@ static int video_stream_load_config(struct video_stream *stream, json_object *js
 	stream->image_height = height;
 	stream->ai_enabled = json_get_value(jinput, int, ai_enabled);
 	stream->detection_mode = json_get_value(jstream, int, detection_mode);
-	stream->alert_server_url = json_get_value(jstream, string, alert_server_url);
 	
+	// parse alert server urls
+	json_object *jalert_servers = NULL;
+	ok = json_object_object_get_ex(jstream, "alert_servers", &jalert_servers);
+	if(ok && jalert_servers) {
+		ssize_t num_alert_servers = json_object_array_length(jalert_servers);
+		if(num_alert_servers > MAX_ALERT_SERVERS_COUNT) num_alert_servers = MAX_ALERT_SERVERS_COUNT;
+		
+		stream->num_alert_servers = num_alert_servers;
+		for(ssize_t i = 0; i < num_alert_servers; ++i) {
+			stream->alert_server_urls[i] = json_object_get_string(json_object_array_get_idx(jalert_servers, i));
+		}
+	}
+
 	int num_ai_engines = 0;
 	ok = json_object_object_get_ex(jstream, "ai-engines", &jai_engines);
 	if(ok && jai_engines) num_ai_engines = json_object_array_length(jai_engines);

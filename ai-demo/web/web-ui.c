@@ -30,6 +30,7 @@
 #include <assert.h>
 
 #include <libsoup/soup.h>
+#include <curl/curl.h>
 #include <dirent.h>
 #include <glib.h>
 #include <gio/gio.h>
@@ -299,6 +300,73 @@ static void on_document_root(SoupServer *server, SoupMessage *msg, const char *p
 	
 }
 
+struct response_headers_closure
+{
+	size_t max_lines;
+	size_t count;
+	char ** lines;
+};
+
+struct response_closure
+{
+	size_t size;
+	size_t length;
+	char *data;
+};
+
+#define RESPONSE_ALLOC_SIZE (65536)
+static int response_closure_resize(struct response_closure *response, size_t new_size)
+{
+	if(new_size == 0) new_size = RESPONSE_ALLOC_SIZE;
+	else new_size = (new_size + RESPONSE_ALLOC_SIZE - 1) / RESPONSE_ALLOC_SIZE * RESPONSE_ALLOC_SIZE;
+	
+	if(new_size <= response->size) return 0;
+	char *data = realloc(response->data, new_size);
+	assert(data);
+	memset(data + response->size, 0, (new_size - response->size) * sizeof(*response->data));
+	
+	response->size = new_size;
+	response->data = data;
+	return 0;
+}
+#undef RESPONSE_ALLOC_SIZE
+
+static int response_closure_push_data(struct response_closure *response, const char *data, size_t length)
+{
+	if(length == 0) return -1;
+	int rc = response_closure_resize(response, response->length + length);
+	assert(0 == rc);
+	
+	memcpy(response->data + response->length, data, length);
+	response->length += length;
+	return 0;
+}
+static void response_closure_cleanup(struct response_closure *response)
+{
+	if(NULL == response) return;
+	if(response->data) {
+		free(response->data);
+		response->data = NULL;
+	}
+	memset(response, 0, sizeof(*response));
+	return;
+}
+
+static size_t on_proxy_response(char *data, size_t size, size_t n, void *user_data)
+{
+	struct response_closure *response = user_data;
+	assert(response);
+	
+	size_t length = size * n;
+	if(length == 0) return 0;
+	
+	int rc = response_closure_push_data(response, data, length);
+	if(rc) return 0;
+
+	return length;
+}
+
+
 static void on_proxy_channels(SoupServer *server, SoupMessage *msg, const char *path, GHashTable *query, SoupClientContext *client, gpointer user_data)
 {
 	struct webui_context *webui = user_data;
@@ -313,36 +381,68 @@ static void on_proxy_channels(SoupServer *server, SoupMessage *msg, const char *
 	snprintf(url, sizeof(url), "%s%s", webui->proxy_base_url, path);
 	fprintf(stderr, "%s(): upstream=%s\n", __FUNCTION__, url);
 	
-	SoupSession *session = webui->reverse_proxy;
-	SoupMessage *request = soup_message_new(msg->method, url);
-	assert(session && request);
+	struct response_closure response[1] = {{
+		.size = 0,
+	}};
+	struct curl_slist *headers = NULL;
+	long response_code = SOUP_STATUS_BAD_GATEWAY;
 	
-	guint response_code = soup_session_send_message(session, request);
-	if(response_code >= 200 && response_code < 300) {
-		
-		const char *key = NULL, *value = NULL;
-		SoupMessageHeadersIter iter;
-		soup_message_headers_iter_init(&iter, request->response_headers);
-		while(soup_message_headers_iter_next(&iter, &key, &value))
-		{
-			if(key && value) soup_message_headers_append(msg->response_headers, key, value);
-			key = NULL;
-			value = NULL;
+	CURL *curl = curl_easy_init();
+	curl_easy_setopt(curl, CURLOPT_URL, url);
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, on_proxy_response);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, response);
+	
+	SoupMessageHeaders *request_headers = msg->request_headers;
+	const char *key = NULL, *value = NULL;
+	SoupMessageHeadersIter iter;
+	soup_message_headers_iter_init(&iter, request_headers);
+	while(soup_message_headers_iter_next(&iter, &key, &value))
+	{
+		if(key && value) {
+			char header_line[4096] = "";
+			snprintf(header_line, sizeof(header_line) - 1, "%s: %s", key, value);
+			headers = curl_slist_append(headers, header_line);
 		}
-		
-		const char *content_type = soup_message_headers_get_content_type(request->response_headers, NULL);
-		assert(content_type);
-		
-		if(request->response_body->length > 0) {
-			soup_message_set_response(msg, content_type, SOUP_MEMORY_COPY, 
-				request->response_body->data,
-				request->response_body->length);
-		}
-		g_object_unref(request);
-		soup_message_set_status(msg, SOUP_STATUS_OK);
-		return;
+		key = NULL; value = NULL;
 	}
+	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+	
+	CURLcode ret = curl_easy_perform(curl);
+	curl_slist_free_all(headers);
+	headers = NULL;
+	
+	if(ret != CURLE_OK) {
+		soup_message_set_status(msg, SOUP_STATUS_BAD_GATEWAY);
+		fprintf(stderr, "curl perform failed: %s\n", curl_easy_strerror(ret));
+		
+		goto label_cleanup;
+		
+	}
+	ret = curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
+	if(ret != CURLE_OK) {
+		soup_message_set_status(msg, SOUP_STATUS_GATEWAY_TIMEOUT);
+		fprintf(stderr, "curl perform failed: %s\n", curl_easy_strerror(ret));
+		goto label_cleanup;
+	}
+	
+	SoupMessageHeaders *response_headers = msg->response_headers;
+	soup_message_headers_append(response_headers, "Connection", "close");
+	soup_message_headers_append(response_headers, "Cache-control", "no-store, no-cache, must-revalidate, pre-check=0, post-check=0, max-age=0");
+	soup_message_headers_append(response_headers, "Pragma", "no-cache");
+	soup_message_headers_append(response_headers, "Expires", "Mon, 3 Jan 2000 00:00:00 GMT");
+	soup_message_headers_append(response_headers, "Access-Control-Allow-Origin", "*");
+	if(response->data) {
+		soup_message_set_response(msg, "image/jpeg", SOUP_MEMORY_TAKE, response->data, response->length);
+		response->data = NULL;
+	}else {
+		response_code = SOUP_STATUS_NO_CONTENT;
+	}
+
+label_cleanup:
 	soup_message_set_status(msg, response_code);
+	
+	if(curl) curl_easy_cleanup(curl);
+	response_closure_cleanup(response);
 	return;
 }
 

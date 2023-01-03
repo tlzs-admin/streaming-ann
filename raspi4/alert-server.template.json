@@ -1,0 +1,16 @@
+{
+  "port":9119,
+  "interval":60,
+  "alerts":[
+    {
+      "type":"run_script",
+      "command":"alert/alert.sh",
+      "interval":60
+    },
+    {
+      "type":"send_mail",
+      "command":"alert/send_mail",
+      "interval":300
+    }
+  ]
+}

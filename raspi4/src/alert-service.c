@@ -133,7 +133,7 @@ static void * alert_thread(void *user_data)
 		if(timestamp < alert->expires_at) {
 			fprintf(stderr, "[command=%s]: %ld seconds left to run next alert\n", 
 				alert->command,
-				(long)alert->expires_at - timestamp);
+				(long)(alert->expires_at - timestamp));
 			continue;
 		}
 		alert->expires_at = timestamp + alert->interval;
@@ -303,7 +303,7 @@ static int alert_server_parse_args(struct alert_server_context *ctx, int argc, c
 		{NULL},
 	};
 	
-	const char *conf_file = NULL;
+	const char *conf_file = "alert-server.json";
 	unsigned int port = 0;
 	
 	while(1) {

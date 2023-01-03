@@ -42,6 +42,8 @@ int main(int argc, char **argv)
 	rc = alert_server->parse_args(alert_server, argc, argv);
 	assert(0 == rc);
 	
+	fprintf(stderr, "work_dir: %s\n", getenv("PWD"));
+	
 	rc = alert_server->run(alert_server);
 	
 	alert_server_context_cleanup(alert_server);

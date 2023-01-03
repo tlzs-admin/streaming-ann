@@ -16,7 +16,7 @@ extern "C" {
 #include "video_source_common.h"
 #include "streaming-proxy.h"
 
-
+#define MAX_ALERT_SERVERS_COUNT (64)
 struct video_stream
 {
 	struct app_context *app;
@@ -55,7 +55,8 @@ struct video_stream
 	int face_masking_flag;
 	int detection_mode;
 	
-	const char *alert_server_url;
+	ssize_t num_alert_servers;
+	const char *alert_server_urls[MAX_ALERT_SERVERS_COUNT];
 };
 
 struct video_stream *video_stream_init(struct video_stream *stream, json_object *jstream, struct app_context *app);
