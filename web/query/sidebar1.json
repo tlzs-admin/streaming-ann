@@ -1,0 +1,20 @@
+[
+	{
+		"id": "default", 
+		"icon": "mdi mdi-bus-multiple", 
+		"value": "Default", 
+		"open": true,
+		"data": [
+			{
+				"id": "default/channel0", 
+				"icon": "mdi mdi-webcam",
+				"value": "bus 1"
+			},
+			{
+				"id": "default/channel1", 
+				"icon": "mdi mdi-webcam",
+				"value": "bus 2"
+			}
+		]
+	}
+]
