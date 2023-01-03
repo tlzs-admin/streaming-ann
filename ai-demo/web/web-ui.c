@@ -71,6 +71,21 @@ struct file_content *file_content_new_from_file(struct file_content *content, co
 	char *content_type = g_content_type_guess(fullname, data, cb_data, &uncertain);
 	if(uncertain) content_type = strdup("application/octet-stream");
 	
+#if defined(_WIN32) || defined(WIN32)
+	if(content_type) {
+		char *mime_type = NULL;
+		if(strcasecmp(content_type, ".html") == 0) mime_type = strdup("text/html");
+		else if(strcasecmp(content_type, ".js") == 0) mime_type = strdup("text/javascript");
+		else if(strcasecmp(content_type, ".json") == 0) mime_type = strdup("application/json");
+		else mime_type = g_content_type_get_mime_type(content_type);
+		
+		g_free(content_type);
+		if(NULL == mime_type) mime_type = strdup("application/octet-stream");
+		content_type = mime_type;
+	}
+#endif
+	
+	printf("content-type: %s\n", content_type);
 	content->content_type = content_type;
 	content->data = data;
 	content->length = cb_data;
@@ -115,11 +130,11 @@ static int filenames_list_add(char **list, size_t index, const char *parent_dir,
 }
 
 
-static ssize_t reload_static_filenames(struct webui_context *webui)
-{
 #define MAX_SUBFOLDERS	(256)
 #define FILELIST_SIZE	(1024)
-
+#if !defined(WIN32) && !defined(_WIN32)
+static ssize_t reload_static_filenames(struct webui_context *webui)
+{
 	if(NULL == webui->document_root) webui->document_root = ".";
 	
 	ssize_t num_subfolders = 0;
@@ -132,7 +147,7 @@ static ssize_t reload_static_filenames(struct webui_context *webui)
 	struct dirent *file_entry = NULL;
 	DIR *dir = opendir(webui->document_root);
 	assert(dir);
-	while((file_entry = readdir(dir))) {
+	while((file_entry = readdir(dir))) {	
 		if(file_entry->d_type == DT_REG || file_entry->d_type == DT_LNK) {
 			assert(num_files < FILELIST_SIZE);
 			filenames_list_add(filenames_list, num_files++, NULL, file_entry->d_name);
@@ -167,12 +182,80 @@ static ssize_t reload_static_filenames(struct webui_context *webui)
 	webui->static_files_namelist = realloc(filenames_list, num_files * sizeof(*filenames_list));
 	
 	webui->contents = calloc(num_files, sizeof(*webui->contents));
-	
-#undef MAX_SUBFOLDERS
-#undef FILELIST_SIZE
-
 	return num_files;
 }
+#else
+#include <windows.h>
+static ssize_t reload_static_filenames(struct webui_context *webui)
+{
+	if(NULL == webui->document_root) webui->document_root = ".";
+	
+	char pattern[4096] = "";
+	snprintf(pattern, sizeof(pattern) - 1, "%s/*", webui->document_root);
+	
+	ssize_t num_subfolders = 0;
+	char *subfolders[MAX_SUBFOLDERS] = { NULL };
+	
+	size_t num_files = 0;
+	char **filenames_list = calloc(FILELIST_SIZE, sizeof(*filenames_list));
+	
+	WIN32_FIND_DATA wfd[1];
+	memset(wfd, 0, sizeof(wfd));
+	
+	DWORD dwError = 0;
+	HANDLE hff = FindFirstFile(pattern, wfd);
+	if(hff == INVALID_HANDLE_VALUE) {
+		dwError = GetLastError();
+		assert(dwError == ERROR_FILE_NOT_FOUND);
+		return -1;
+	}
+	
+	do {
+		if(wfd->cFileName[0] == '.') continue;
+		if(wfd->dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+			assert(num_subfolders < MAX_SUBFOLDERS);
+			subfolders[num_subfolders++] = strdup(wfd->cFileName);
+		}else {
+			assert(num_files < FILELIST_SIZE);
+			filenames_list_add(filenames_list, num_files++, NULL, wfd->cFileName);
+			fprintf(stderr, "file_attr: 0x%.8x, 	filename: %s\n", (unsigned int)wfd->dwFileAttributes, wfd->cFileName);
+		}
+		memset(wfd, 0, sizeof(wfd));
+	}while(FindNextFile(hff, wfd));
+	
+	dwError = GetLastError();
+	if(dwError != ERROR_NO_MORE_FILES) {
+		fprintf(stderr, "error: %ld\n", dwError);
+		return -1;
+	}
+	FindClose(hff);
+	
+	for(size_t i = 0; i < num_subfolders; ++i) {
+		snprintf(pattern, sizeof(pattern) - 1, "%s/%s/*", webui->document_root, subfolders[i]);
+		memset(wfd, 0, sizeof(wfd));
+		hff = FindFirstFile(pattern, wfd);
+		if(hff == INVALID_HANDLE_VALUE) continue;
+		do {
+			if(wfd->cFileName[0] == '.') continue;
+			if(wfd->dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+			
+			assert(num_files < FILELIST_SIZE);
+			filenames_list_add(filenames_list, num_files++, subfolders[i], wfd->cFileName);
+			fprintf(stderr, "file_attr: 0x%.8x, 	filename: %s\n", (unsigned int)wfd->dwFileAttributes, wfd->cFileName);
+			
+			memset(wfd, 0, sizeof(wfd));
+		}while(FindNextFile(hff, wfd));
+		FindClose(hff);
+	}
+	webui->num_static_files = num_files;
+	webui->static_files_namelist = realloc(filenames_list, num_files * sizeof(*filenames_list));
+	
+	webui->contents = calloc(num_files, sizeof(*webui->contents));
+	return num_files;
+}
+#endif
+#undef MAX_SUBFOLDERS
+#undef FILELIST_SIZE
 
 
 static void on_document_root(SoupServer *server, SoupMessage *msg, const char *path, GHashTable *query, SoupClientContext *client, gpointer user_data)
@@ -194,7 +277,7 @@ static void on_document_root(SoupServer *server, SoupMessage *msg, const char *p
 			
 			content = webui->contents[i];
 			if(NULL == content) {
-				content = file_content_new_from_file(NULL, webui->document_root, path_name);
+				content = webui->contents[i] = file_content_new_from_file(NULL, webui->document_root, path_name);
 			}
 			break;
 		}
@@ -299,6 +382,17 @@ int main(int argc, char **argv)
 		}
 	}
 	assert(ok);
+	
+	GSList *uris = soup_server_get_uris(server);
+	assert(uris);
+	for(GSList *uri = uris; NULL != uri; uri = uri->next) {
+		char *sz_uri = soup_uri_to_string(uri->data, FALSE);
+		assert(sz_uri);
+		fprintf(stderr, "Listening on: %s\n", sz_uri);
+		free(sz_uri);
+		soup_uri_free(uri->data);
+	}
+	g_slist_free(uris);
 	
 	
 	GMainLoop *loop = g_main_loop_new(NULL, FALSE);

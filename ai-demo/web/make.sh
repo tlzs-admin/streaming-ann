@@ -1,6 +1,15 @@
 #!/bin/bash
 
-gcc -std=gnu99 -g -Wall -D_DEBUG -I../include -I../utils \
+CFLAGS=" -Wall "
+if [[ "$OS" == "Windows_NT" ]] ; then
+	CFLAGS+=" -DWIN32 "
+fi
+
+work_dir=$(dirname $0)
+echo "work_dir: $work_dir"
+
+cd $work_dir
+gcc -std=gnu99 -g -D_DEBUG ${CFLAGS} -I../include -I../utils \
 	-o web-ui web-ui.c \
 	../utils/utils.c \
 	-lm -lpthread -ljson-c -ljpeg -lcairo \
