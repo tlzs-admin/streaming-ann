@@ -85,11 +85,19 @@ bin/video-player5: $(VIDEO_PLAYRE5_OBJECTS) video-player5.c \
 	$(CC) $(OPTIMIZE) -o $@ $^ $(LIBS) $(CFLAGS) 
 
 
-bin/send_mail: utils/send_mail.c utils/auto_buffer.c utils/utils.c
+bin/send_mail: utils/send_mail.c utils/auto_buffer.c utils/utils.c utils/base64.c
 	$(CC) $(OPTIMIZE) $(CFLAGS) \
         -DTEST_SMTP_CLIENT_ -D_STAND_ALONE \
         -o $@ $^  \
         -lm -lpthread -ljson-c -lcurl
+        
+bin/test_mime_b64_encode: utils/send_mail.c utils/auto_buffer.c utils/utils.c utils/base64.c
+	$(CC) $(OPTIMIZE) $(CFLAGS) \
+        -DTEST_SMTP_CLIENT_ -D_STAND_ALONE \
+        -DTEST_MIME_B64_ENCODE \
+        -o $@ $^  \
+        -lm -lpthread -ljson-c -lcurl
+
 
 .PHONY: do_init clean install
 do_init:

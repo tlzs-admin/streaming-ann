@@ -35,7 +35,90 @@
 
 #include "utils.h"
 #include "auto_buffer.h"
+#include "base64.h"
 
+static ssize_t mime_b64_encode(const char *charset, const char *text, size_t cb_text, size_t b64_block_size, char **p_output)
+{
+	/* 
+	 * output fmt: 
+	 * - single line format: 
+	 *     "=?<charset>?B?<b64_block>?="
+	 * 
+	 * - multiple lines format:
+	 *     "=?<charset>?B?<b64_block>?=\r\n"
+	 *     " =?<charset>?B?<b64_block>?=\r\n"
+	 *     ...
+	 *     " =?<charset>?B?<b64_block>?="
+	*/
+	if(b64_block_size == 0) b64_block_size = 64;	// <== default block size
+	
+	if(NULL == charset || !charset[0]) charset = "UTF-8";
+	if(cb_text == -1) cb_text = strlen(text);
+	if(cb_text == 0) return 0;
+	
+	size_t cb_b64 = (cb_text + 2) / 3 * 4;
+	ssize_t num_blocks = 1;
+	num_blocks = (cb_b64 + b64_block_size - 1) / b64_block_size;
+	
+	size_t max_line_size = 3 // " =?"
+			+ strlen(charset) 
+			+ 3 // "?B?"
+			+ b64_block_size
+			+ 4; // "?=\r\n"
+	
+	size_t max_output_size = max_line_size * num_blocks;
+	assert(max_output_size > 0);
+	if(NULL == p_output) return max_output_size + 1;
+	
+	char *b64 = NULL;
+	if(cb_text > 0) {
+		cb_b64 = base64_encode(text, cb_text, &b64);
+		assert(cb_b64 > 0);
+	}
+	
+	char *output = *p_output;
+	if(NULL == output) {
+		output = calloc(max_output_size + 1, 1);
+		assert(output);
+		*p_output = output;
+	}
+	
+	const char *src = b64;
+	char *p = output;
+	char *p_end = output + max_output_size + 1;
+	size_t cb_block = (cb_b64 < b64_block_size)?cb_b64:b64_block_size;
+	
+	ssize_t cb = snprintf(p, p_end - p, "=?%s?B?", charset);
+	assert(cb > 0 && (p + cb + cb_block + 2) < p_end);
+	p += cb;
+	
+	memcpy(p, src, cb_block);
+	p += cb_block;
+	src += cb_block;
+	cb_b64 -= cb_block;
+	*p++ = '?'; *p++ = '=';
+	
+	while(cb_b64 > 0) {
+		assert((p + 2) < p_end);
+		*p++ = '\r'; *p++ = '\n';
+		
+		cb_block = (cb_b64 < b64_block_size)?cb_b64:b64_block_size;
+		cb = snprintf(p, p_end - p, " =?%s?B?", charset);
+		assert(cb > 0 && (p + cb + cb_block + 2) < p_end);
+		
+		p += cb;
+		memcpy(p, src, cb_block);
+		p += cb_block;
+		src += cb_block;
+		cb_b64 -= cb_block;
+		
+		*p++ = '?'; *p++ = '=';
+	}
+	
+	if(b64) free(b64);
+	assert(p < p_end);
+	return (p - output);
+}
 
 
 /******************************************************************************
@@ -258,7 +341,15 @@ int smtp_mail_info_serialize(struct smtp_mail_info *mail, struct auto_buffer *pa
 
 	int rnd_value = rand() % 1000;
 	payload_append_fmt(payload, "Message-ID: <%.9ld-%.3d-%s>\r\n", (long)timestamp, rnd_value, mail->from);
-	payload_append_fmt(payload, "Subject: %s\r\n", mail->subject?mail->subject:"");
+	
+	
+	char *mime_subject = NULL;
+	if(mail->subject) {
+		cb = mime_b64_encode(mail->charset, mail->subject, -1, 0, &mime_subject);
+		assert(cb > 0);
+	}
+	payload_append_fmt(payload, "Subject: %s\r\n", mime_subject?mime_subject:"");
+	if(mime_subject) { free(mime_subject); mime_subject = NULL; }
 	
 	// append headers
 	if(mail->content_type) {
@@ -483,13 +574,94 @@ static void print_usuage(const char *app_name)
 		"    -M [--message=] 'mail::body' \n"
 		"    -f [--file=] 'mail::body_file.txt' \n"
 		"    -c [--credentials=] credentials_file.json \n"
+		"    -s [--charset=] charset (default: utf-8) \n"
 		"    -h [--help=] \n"
 		"\n", app_name);
 	return;
 }
 
+
+
+#if defined(TEST_MIME_B64_ENCODE)
+#include <iconv.h>
+static void test_mime_b64_encode(const char *text, const char *charset, size_t block_size)
+{
+	int rc = 0;
+	if(NULL == text || !text[0]) text = "こんにちは";
+	if(NULL == charset || !charset[0]) charset = "UTF-8";
+	
+	size_t cb = 0;
+	char *mime_text = NULL;
+	
+	size_t cb_text = strlen(text);
+	assert(cb_text > 0);
+	
+	fprintf(stderr, "charset: %s, block_size: %ld\ntext: %s\n", charset, (long)block_size, text);
+	
+	if(strcasecmp(charset, "utf-8") != 0 && strcasecmp(charset, "utf8") != 0)
+	{
+		size_t in_size = cb_text + 1;
+		size_t out_size = in_size * 2;
+		
+		printf("in size: %ld, out size: %ld\n", (long)in_size, (long)out_size);
+		
+		char *p_in = (char *)text;
+		char *out_buf = calloc(out_size, 1);
+		char *p_out = out_buf;
+		
+		iconv_t cd = iconv_open(charset, "utf-8");
+		cb = iconv(cd, &p_in, &in_size, &p_out, &out_size);
+		
+		if(cb == -1) {
+			perror("iconv");
+			exit(1);
+		}
+		printf("in size: %ld, out size: %ld\n", (long)in_size, (long)out_size);
+		
+		ssize_t out_length = p_out - out_buf;
+		fprintf(stderr, "input : %s\n", text);
+		for(size_t i = 0; i < (cb_text + 1); ++i) {
+			fprintf(stderr, "%.2x ", (unsigned char)text[i]);
+		}
+		fprintf(stderr, "\n");
+		
+		for(size_t i = 0; i < out_length; ++i) {
+			fprintf(stderr, "%.2x ", (unsigned char)out_buf[i]);
+		}
+		fprintf(stderr, "\n");
+		
+		cb = mime_b64_encode(charset, out_buf, out_length, block_size, &mime_text);
+		free(out_buf);
+		
+		iconv_close(cd);
+	}else {
+		cb = mime_b64_encode(charset, text, cb_text, block_size, &mime_text);
+	}
+	
+	
+	printf("cb: %ld, mime_text: %s\n", (long)cb, mime_text);
+	free(mime_text);
+	exit(rc);
+}
+#else 
+#define test_mime_b64_encode(...) do { } while(0)
+#endif
+
+
 int main(int argc, char **argv)
 {
+	const char *charset = "UTF-8";
+	
+#if defined(TEST_MIME_B64_ENCODE)
+	const char *text = "こんにちは";
+	size_t block_size = 64;
+	if(argc > 1) text = argv[1];
+	if(argc > 2) charset = argv[2];
+	if(argc > 3) block_size = atol(argv[3]);
+	test_mime_b64_encode(text, charset, block_size);
+	exit(0);
+#endif
+
 	int rc = 0;
 	curl_global_init(CURL_GLOBAL_ALL);
 	struct smtp_client smtp_buf[1];
@@ -511,6 +683,7 @@ int main(int argc, char **argv)
 		{"message", required_argument, 0, 'M'},
 		{"body-file", required_argument, 0, 'f'},
 		{"credentials", required_argument, 0, 'c'},
+		{"charset", required_argument, 0, 's'},
 		{"help", no_argument, 0, 'h'},
 		{NULL}
 	};
@@ -537,6 +710,7 @@ int main(int argc, char **argv)
 		case 'M': body = optarg; break;
 		case 'f': body_file = optarg; break;
 		case 'c': credentials_file = optarg; break;
+		case 's': charset = optarg; break;
 		case 'h': print_usuage(argv[0]); exit(1); break;
 		default:
 			fprintf(stderr, "invalid arguments '%c'(%.2x)\n", c, (unsigned char)c);
@@ -554,6 +728,7 @@ int main(int argc, char **argv)
 	mail->from = strdup(from);
 	
 	if(subject) mail->subject = strdup(subject);
+	mail->charset = charset;
 	
 	unsigned char *body_data = NULL;
 	if(NULL == body) {
@@ -574,13 +749,13 @@ int main(int argc, char **argv)
 	
 
 
-	struct auto_buffer *payload = auto_buffer_init(NULL, 0);
+	struct auto_buffer payload[1];
+	memset(payload, 0, sizeof(payload));
 	smtp_mail_info_dump(mail, payload, stderr);
 	
 	rc = smtp->send(smtp, mail, payload);
 
 	auto_buffer_cleanup(payload);
-	free(payload);
 	
 	smtp_mail_info_clear(mail);
 	smtp_client_cleanup(smtp);

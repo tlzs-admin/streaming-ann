@@ -26,6 +26,7 @@ struct smtp_mail_info {
 	struct clib_string_array cc_list[1];
 	struct clib_string_array bcc_list[1];
 	
+	const char *charset;
 	char *subject;
 	size_t cb_subject;
 	
