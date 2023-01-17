@@ -43,6 +43,8 @@ struct stream_viewer
 //	int face_masking_flag;
 	int is_busy;
 	
+	gulong detection_mode_handler;
+	GtkWidget *detection_mode_menu;
 	
 };
 

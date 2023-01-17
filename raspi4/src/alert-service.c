@@ -121,22 +121,6 @@ static void * alert_thread(void *user_data)
 		int is_busy = alert_data_get_busy_status(alert);
 		if(is_busy) continue;
 		
-		struct timespec ts[1];
-		memset(ts, 0, sizeof(ts));
-		rc = clock_gettime(CLOCK_REALTIME, ts);
-		if(rc) {
-			perror("clock_gettime() failed");
-		}
-		assert(0 == rc);
-		
-		int64_t timestamp = ts->tv_sec;
-		if(timestamp < alert->expires_at) {
-			fprintf(stderr, "[command=%s]: %ld seconds left to run next alert\n", 
-				alert->command,
-				(long)(alert->expires_at - timestamp));
-			continue;
-		}
-		alert->expires_at = timestamp + alert->interval;
 		(void) run_command_async(alert);
 	}
 
@@ -182,27 +166,56 @@ static void alert_data_private_free(struct alert_data_private *priv)
 	free(priv);
 }
 
-static int alert_notify(struct alert_data *alert)
+static int alert_notify(struct alert_data *alert, const char *source, int64_t timestamp)
 {
 	assert(alert && alert->priv);
 	
 	int is_busy = alert_data_get_busy_status(alert);
 	if(is_busy) return -1;
 	
+	pthread_mutex_lock(&alert->mutex);
+	if(timestamp <= 0) {
+		struct timespec ts[1];
+		memset(ts, 0, sizeof(ts));
+		int rc = clock_gettime(CLOCK_REALTIME, ts);
+		if(rc) {
+			perror("clock_gettime() failed");
+			pthread_mutex_unlock(&alert->mutex);
+			return rc;
+		}
+		timestamp = ts->tv_sec;
+	}
+	
+	if(timestamp < alert->expires_at) {
+		fprintf(stderr, "[command=%s]: %ld seconds left to run next alert.\n",
+			alert->command, (long)(alert->expires_at - timestamp));
+			
+		pthread_mutex_unlock(&alert->mutex);
+		return -2;
+	}
+	alert->timestamp = timestamp;
+	alert->expires_at = timestamp + alert->interval;
+	pthread_mutex_unlock(&alert->mutex);
+	
 	struct alert_data_private *priv = alert->priv;
 	pthread_mutex_lock(&priv->mutex);
+	if(source) {
+		if(alert->source) free(alert->source);
+		alert->source = strdup(source);
+	}
+	
 	pthread_cond_signal(&priv->cond);
 	pthread_mutex_unlock(&priv->mutex);
 	return 0;
 }
 
-struct alert_data *alert_data_new(enum alert_type type, const char *command)
+struct alert_data *alert_data_new(const char *channel_name, const char *command)
 {
 	struct alert_data *alert = calloc(1, sizeof(*alert));
 	assert(alert);
 	alert->notify = alert_notify;
 	
-	alert->type = type;
+	alert->channel_name = strdup(channel_name);
 	alert->command = strdup(command);
 	
 	int rc = pthread_mutex_init(&alert->mutex, NULL);
@@ -218,7 +231,13 @@ void alert_data_free(struct alert_data *alert)
 	alert_data_private_free(alert->priv);
 	alert->priv = NULL;
 	
+	free(alert->channel_name);
+	free(alert->command);
+	free(alert->source);
+
 	pthread_mutex_destroy(&alert->mutex);
+	
+	memset(alert, 0, sizeof(*alert));
 	free(alert);
 }
 
@@ -254,17 +273,16 @@ void alert_server_context_dump(const struct alert_server_context *ctx, FILE *fp)
 	for(int i = 0; i < ctx->num_alerts; ++i) {
 		struct alert_data *alert = ctx->alerts[i];
 		assert(alert);
-		assert(alert->type >= 0 && alert->type <= alert_types_count);
-		
-		fprintf(fp, "    alerts[%d]: type=%s, interval=%ld, command=%s\n", i, 
-			alert_type_to_string(alert->type), 
+		fprintf(fp, "    alerts[%d]: channel_name=%s, interval=%ld, command=%s\n", i, 
+			alert->channel_name,
 			(long)alert->interval,
 			alert->command);
 	}
 }
 
-static json_object *generate_default_config(void)
+static json_object *generate_default_config(const char *output_file)
 {
+	if(NULL == output_file) output_file = "alert-server.json.template";
 	json_object *jconfig = json_object_new_object();
 	assert(jconfig);
 	
@@ -276,21 +294,21 @@ static json_object *generate_default_config(void)
 	json_object *jalert = NULL;
 	
 	jalert = json_object_new_object();
-	json_object_object_add(jalert, "type", json_object_new_string("run_script"));
-	json_object_object_add(jalert, "command", json_object_new_string("alert/alert.sh"));
-	json_object_object_add(jalert, "interval", json_object_new_int64(60)); 
-	json_object_array_add(jalerts, jalert);
-	
-	jalert = json_object_new_object();
-	json_object_object_add(jalert, "type", json_object_new_string("send_mail"));
-	json_object_object_add(jalert, "command", json_object_new_string("alert/send_mail"));
+	json_object_object_add(jalert, "channel_name", json_object_new_string("channel0"));
+	json_object_object_add(jalert, "command", json_object_new_string("bin/alert-channel0.sh"));
 	json_object_object_add(jalert, "interval", json_object_new_int64(300)); 
 	json_object_array_add(jalerts, jalert);
 	
-	fprintf(stderr, "%s():\n%s\n", __FUNCTION__, 
+	jalert = json_object_new_object();
+	json_object_object_add(jalert, "channel_name", json_object_new_string("channel1"));
+	json_object_object_add(jalert, "command", json_object_new_string("bin/alert-channel1.sh"));
+	json_object_object_add(jalert, "interval", json_object_new_int64(300)); 
+	json_object_array_add(jalerts, jalert);
+	
+	fprintf(stderr, "%s(%s):\n%s\n", __FUNCTION__, output_file,  
 		json_object_to_json_string_ext(jconfig, JSON_C_TO_STRING_PRETTY | JSON_C_TO_STRING_NOSLASHESCAPE));
 	
-	json_object_to_file_ext("alert-server.template.json", jconfig, JSON_C_TO_STRING_PRETTY | JSON_C_TO_STRING_NOSLASHESCAPE);
+	json_object_to_file_ext(output_file, jconfig, JSON_C_TO_STRING_PRETTY | JSON_C_TO_STRING_NOSLASHESCAPE);
 	
 	return jconfig;
 }
@@ -330,7 +348,7 @@ static int alert_server_parse_args(struct alert_server_context *ctx, int argc, c
 	}
 	
 	if(NULL == jconfig) {
-		jconfig = generate_default_config();
+		jconfig = generate_default_config(conf_file);
 		assert(jconfig);
 	}
 	
@@ -361,15 +379,11 @@ static int alert_server_parse_args(struct alert_server_context *ctx, int argc, c
 	for(int i = 0; i < num_alerts; ++i)
 	{
 		json_object *jalert = json_object_array_get_idx(jalerts, i);
-		const char *sz_type = json_get_value(jalert, string, type);
+		const char *channel_name = json_get_value(jalert, string, channel_name);
 		const char *command = json_get_value(jalert, string, command);
-		assert(sz_type && command);
-		
-		enum alert_type type = alert_type_from_string(sz_type);
-		assert(type != -1);
-		if(type == alert_type_default) type = alert_type_run_scripts;
-		
-		struct alert_data *alert = alert_data_new(type, command);
+		assert(channel_name && command);
+			
+		struct alert_data *alert = alert_data_new(channel_name, command);
 		assert(alert);
 		alert->interval = json_get_value_default(jalert, int, interval, ctx->interval);
 		alerts[i] = alert;
@@ -383,6 +397,72 @@ void alert_server_context_cleanup(struct alert_server_context *ctx)
 	///< @todo
 }
 
+static void on_reset(SoupServer *server, SoupMessage *msg, const char *path, GHashTable *query, SoupClientContext *client, gpointer user_data)
+{
+	struct alert_server_context *ctx = user_data;
+	assert(ctx);
+	
+	if(msg->method != SOUP_METHOD_GET) {
+		soup_message_set_status(msg, SOUP_STATUS_NOT_FOUND);
+		return;
+	}
+	
+	const char *channel_name = NULL;
+	const char *source = NULL;
+	if(query) {
+		channel_name = g_hash_table_lookup(query, "channel");
+		source = g_hash_table_lookup(query, "source");
+	}
+	
+	char err_msg[1024] = "";
+	ssize_t cb_err = 0;
+	if(NULL == channel_name || !channel_name[0]) {
+		cb_err = snprintf(err_msg, sizeof(err_msg) - 1, "invalid channel_name: '%s'", channel_name);
+		soup_message_set_response(msg, "text/plain", SOUP_MEMORY_COPY, err_msg, cb_err);
+		soup_message_set_status(msg, SOUP_STATUS_BAD_REQUEST);
+		return;
+	}
+	
+	struct alert_data *alert = NULL;
+	for(int i = 0; i < ctx->num_alerts; ++i) {
+		if(NULL == ctx->alerts[i] || NULL == ctx->alerts[i]->channel_name) continue;
+		if(strcasecmp(ctx->alerts[i]->channel_name, channel_name) == 0) {
+			alert = ctx->alerts[i];
+			break;
+		}
+	}
+	
+	if(NULL == alert) {
+		cb_err = snprintf(err_msg, sizeof(err_msg) - 1, "channel '%s' not found.", channel_name);
+		soup_message_set_response(msg, "text/plain", SOUP_MEMORY_COPY, err_msg, cb_err);
+		soup_message_set_status(msg, SOUP_STATUS_BAD_REQUEST);
+		return;
+	}
+	
+	static const char *response_fmt = "{ "
+		"  \"err_code\": %d, "
+		"  \"source\": \"%s\", "
+		"  \"channel_name\": \"%s\", "
+		"  \"command\": \"reset\", "
+		"  \"is_busy\": %d, "
+		"  \"expires_at\": %ld "
+		"}\n";
+		
+	alert->expires_at = 0;
+	char response[4096] = "";
+	ssize_t cb_response = snprintf(response, sizeof(response) - 1, 
+		response_fmt,
+		0, 
+		source, channel_name, alert->command, 
+		alert->busy, (long)alert->expires_at);
+	
+	fprintf(stderr, "response=%s\n", response);
+	
+	soup_message_set_response(msg, "application/json", SOUP_MEMORY_COPY, response, cb_response);
+	soup_message_set_status(msg, SOUP_STATUS_ACCEPTED);
+	return;
+	
+}
 
 
 static void on_alert(SoupServer *server, SoupMessage *msg, const char *path, GHashTable *query, SoupClientContext *client, gpointer user_data)
@@ -400,22 +480,64 @@ static void on_alert(SoupServer *server, SoupMessage *msg, const char *path, GHa
 		return;
 	}
 	
-	const char *client_id = NULL;
+	const char *source = NULL;
+	const char *channel_name = NULL;
 	if(query) {
-		client_id = g_hash_table_lookup(query, "client_id");
-	}
-	if(client_id) {
-		///< @todo : check client_id
+		channel_name = g_hash_table_lookup(query, "channel");
+		source = g_hash_table_lookup(query, "source");
 	}
 	
+	char err_msg[1024] = "";
+	ssize_t cb_err = 0;
+	if(NULL == channel_name || !channel_name[0]) {
+		cb_err = snprintf(err_msg, sizeof(err_msg) - 1, "invalid channel_name: '%s'", channel_name);
+		soup_message_set_response(msg, "text/plain", SOUP_MEMORY_COPY, err_msg, cb_err);
+		soup_message_set_status(msg, SOUP_STATUS_BAD_REQUEST);
+		return;
+	}
+	
+	struct alert_data *alert = NULL;
 	for(int i = 0; i < ctx->num_alerts; ++i) {
-		struct alert_data *alert = ctx->alerts[i];
-		assert(alert);
-		
-		int rc = alert->notify(alert);
-		fprintf(stderr, "alerts[%d]: rc = %d\n", i, rc);
+		if(NULL == ctx->alerts[i] || NULL == ctx->alerts[i]->channel_name) continue;
+		if(strcasecmp(ctx->alerts[i]->channel_name, channel_name) == 0) {
+			alert = ctx->alerts[i];
+			break;
+		}
 	}
 	
+	if(NULL == alert) {
+		cb_err = snprintf(err_msg, sizeof(err_msg) - 1, "channel '%s' not found.", channel_name);
+		soup_message_set_response(msg, "text/plain", SOUP_MEMORY_COPY, err_msg, cb_err);
+		soup_message_set_status(msg, SOUP_STATUS_BAD_REQUEST);
+		return;
+	}
+	
+	static const char *response_fmt = "{ "
+		"  \"err_code\": %d, "
+		"  \"source\": \"%s\", "
+		"  \"channel_name\": \"%s\", "
+		"  \"command\": \"%s\", "
+		"  \"is_busy\": %d, "
+		"  \"expires_at\": %ld "
+		"  \"timeout\": %ld seconds "
+		"}\n";
+	
+	struct timespec ts[1];
+	memset(ts, 0, sizeof(ts));
+	clock_gettime(CLOCK_REALTIME, ts);
+	int64_t timestamp = ts->tv_sec;
+	
+	int rc = alert->notify(alert, source, timestamp);
+	char response[4096] = "";
+	ssize_t cb_response = snprintf(response, sizeof(response) - 1, 
+		response_fmt,
+		rc, 
+		source, channel_name, alert->command, 
+		alert->busy, (long)alert->expires_at, (long)(alert->expires_at - timestamp));
+	
+	fprintf(stderr, "response=%s\n", response);
+	
+	soup_message_set_response(msg, "application/json", SOUP_MEMORY_COPY, response, cb_response);
 	soup_message_set_status(msg, SOUP_STATUS_ACCEPTED);
 	return;
 }
@@ -428,6 +550,7 @@ int alert_server_run(struct alert_server_context *ctx)
 	GMainLoop *loop = NULL;
 	SoupServer *server = soup_server_new(SOUP_SERVER_SERVER_HEADER, "alert-server/v0.1.0-alpha", NULL);
 	soup_server_add_handler(server, "/alert", on_alert, ctx, NULL);
+	soup_server_add_handler(server, "/reset", on_reset, ctx, NULL);
 	
 	GError *gerr = NULL;
 	gboolean ok = soup_server_listen_all(server, ctx->port, 0, &gerr);
@@ -441,7 +564,7 @@ int alert_server_run(struct alert_server_context *ctx)
 	GSList *uris = soup_server_get_uris(server);
 	for(GSList *uri = uris; NULL != uri; uri = uri->next)
 	{
-		fprintf(stderr, "listening: %s\n", soup_uri_to_string(uri->data, FALSE));
+		fprintf(stderr, "listening: %salert\n", soup_uri_to_string(uri->data, FALSE));
 		soup_uri_free(uri->data);
 		uri->data = NULL;
 	}

@@ -152,8 +152,9 @@ void channel_context_free(struct channel_context *channel)
 	
 }
 
-
-
+/******************************************************************************
+ * streaming_proxy_context
+******************************************************************************/
 
 static json_object *generate_default_config()
 {
@@ -182,8 +183,12 @@ static int streaming_proxy_load_config(struct streaming_proxy_context *proxy, js
 	
 	assert(base_path[0] == '/');
 	proxy->cb_path = snprintf(proxy->base_path, sizeof(proxy->base_path) - 1, "%s", base_path);
-	
 	proxy->port = port;
+	
+	const char *config_path = json_get_value_default(jconfig, string, config_path, "/config");
+	assert(config_path && config_path[0] == '/');
+	proxy->config_path = config_path;
+	
 	return 0;
 }
 
@@ -376,8 +381,20 @@ static void on_web_viewer(SoupServer *server, SoupMessage *msg, const char *path
 	
 	soup_message_set_status(msg, SOUP_STATUS_NOT_FOUND);
 	return;
-
 }
+
+static void on_config_handler(SoupServer *http, SoupMessage *msg, const char *path, GHashTable *query, SoupClientContext *client, gpointer user_data)
+{
+	struct streaming_proxy_context *proxy = user_data;
+	assert(proxy && proxy->http == http );
+	
+	guint status = SOUP_STATUS_BAD_REQUEST;
+	if(proxy->on_config) status = proxy->on_config(proxy, msg, path, query, client, proxy->config_ctx);
+	
+	soup_message_set_status(msg, status);
+	return;
+}
+
 struct streaming_proxy_context *streaming_proxy_context_init(struct streaming_proxy_context *proxy, json_object *jconfig, void *user_data)
 {
 	if(NULL == proxy) proxy = calloc(1, sizeof(*proxy));
@@ -396,10 +413,10 @@ struct streaming_proxy_context *streaming_proxy_context_init(struct streaming_pr
 	
 	SoupServer *http = soup_server_new(SOUP_SERVER_SERVER_HEADER, "streaming-proxy", NULL);
 	assert(http);
+	proxy->http = http;
 	
 	assert(proxy->base_path[0] == '/');
 	soup_server_add_handler(http, proxy->base_path, (SoupServerCallback)on_streaming_proxy_handler, proxy, NULL);
-	
 	
 	proxy->viewer_path = json_get_value_default(jconfig, string, viewer_path, "viewer");
 	proxy->viewer_html = json_get_value(jconfig, string, viewer_html);
@@ -407,9 +424,30 @@ struct streaming_proxy_context *streaming_proxy_context_init(struct streaming_pr
 		soup_server_add_handler(http, proxy->viewer_path, on_web_viewer, proxy, NULL);
 	}
 	
+	if(proxy->config_path) {
+		soup_server_add_early_handler(http, proxy->config_path, (SoupServerCallback)on_config_handler, proxy, NULL);
+	}
+	
+	return proxy;
+}
+void streaming_proxy_context_cleanup(struct streaming_proxy_context *proxy)
+{
+	return;
+}
+
+int streaming_proxy_run(struct streaming_proxy_context *proxy, int extern_loop)
+{
+	assert(proxy && proxy->http);
+	SoupServer *http = proxy->http;
+	
 	GError *gerr = NULL;
 	gboolean ok = soup_server_listen_all(http, proxy->port, 0, &gerr);
-	assert(ok && NULL == gerr);
+	if(gerr) {
+		fprintf(stderr, "\e[31m" "ERROR: %s() failed: %s." "\e[39m", __FUNCTION__, gerr->message);
+		g_error_free(gerr);
+		gerr = NULL;
+	}
+	assert(ok);
 	
 	proxy->http = http;
 	GSList *uris = soup_server_get_uris(http);
@@ -422,22 +460,23 @@ struct streaming_proxy_context *streaming_proxy_context_init(struct streaming_pr
 	}
 	fprintf(stderr, "viewer path: %s\n", proxy->viewer_path);
 	g_slist_free(uris);
-	return proxy;
-}
-void streaming_proxy_context_cleanup(struct streaming_proxy_context *proxy)
-{
-	return;
+	
+	if(!extern_loop) {
+		GMainLoop *loop = g_main_loop_new(NULL, FALSE);
+		g_main_loop_run(loop);
+		g_main_loop_unref(loop);
+	}
+	
+	return 0;
 }
 
 #if defined(TEST_STREAMING_PROXY_) && defined(_STAND_ALONE)
 int main(int argc, char **argv)
 {
-	GMainLoop *loop = g_main_loop_new(NULL, FALSE);
 	struct streaming_proxy_context *proxy = streaming_proxy_context_init(NULL, NULL, NULL);
 	assert(proxy);
 	
-	g_main_loop_run(loop);
-	g_main_loop_unref(loop);
+	streaming_proxy_run(proxy, 0);
 	
 	streaming_proxy_context_cleanup(proxy);
 	return 0;

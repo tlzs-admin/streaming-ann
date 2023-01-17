@@ -542,7 +542,7 @@ static void draw_face_masking(cairo_t *cr, double width, double height,
 	return;
 }
 
-static int alert_client_notify(struct video_stream *stream, const char *server_url)
+static int alert_client_notify(struct video_stream *stream, const char *alert_server_url, const char *query_string)
 {
 	static FILE *alert_log;
 	if(NULL == alert_log) {
@@ -551,8 +551,13 @@ static int alert_client_notify(struct video_stream *stream, const char *server_u
 	FILE *fp = alert_log;
 	if(NULL == fp) fp = stderr;
 	
+	char url[4096] = "";
+	if(query_string && query_string[0]) {
+		snprintf(url, sizeof(url) - 1, "%s?%s", alert_server_url, query_string);
+	}
+	
 	CURL *curl = curl_easy_init();
-	curl_easy_setopt(curl, CURLOPT_URL, server_url);
+	curl_easy_setopt(curl, CURLOPT_URL, url);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
 	
 	CURLcode ret = curl_easy_perform(curl);
@@ -661,7 +666,14 @@ static void draw_leaving_behind(cairo_t *cr, double width, double height,
 		struct video_stream *stream = viewer->stream;
 		for(ssize_t i = 0; i < stream->num_alert_servers; ++i) {
 			if(NULL == stream->alert_server_urls[i]) continue;
-			alert_client_notify(stream, stream->alert_server_urls[i]);
+			const char *alert_server_url = stream->alert_server_urls[i];
+			char query_string[100] = "?";
+			if(strchr(alert_server_url, '?')) query_string[0] = '&';
+			
+			strcat(query_string, "channel=");
+			if(stream->channel_name) strcat(query_string, stream->channel_name);
+			
+			alert_client_notify(stream, alert_server_url, query_string);
 		}
 	}
 }

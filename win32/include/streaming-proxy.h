@@ -78,9 +78,18 @@ struct streaming_proxy_context
 	
 	struct channel_context * (*find_channel_by_name)(struct streaming_proxy_context *proxy, const char *name);
 	struct channel_context * (*find_or_register_channel)(struct streaming_proxy_context *proxy, const char *name, GHashTable *querystring);
+	
+	
+	/* 
+	 * doc/streaming-proxy.md 
+	*/
+	const char *config_path;
+	void *config_ctx;
+	guint (*on_config)(struct streaming_proxy_context *proxy, SoupMessage *msg, const char *path, GHashTable *query, SoupClientContext *client, void *config_ctx);
 };
 
 struct streaming_proxy_context *streaming_proxy_context_init(struct streaming_proxy_context *proxy, json_object *jconfig, void *user_data);
+int streaming_proxy_run(struct streaming_proxy_context *proxy, int extern_loop);
 void streaming_proxy_context_cleanup(struct streaming_proxy_context *proxy);
 
 

@@ -3,13 +3,13 @@
   "interval":60,
   "alerts":[
     {
-      "type":"run_script",
-      "command":"alert/alert.sh",
-      "interval":60
+      "channel_name":"channel0",
+      "command":"bin/alert-channel0.sh",
+      "interval":300
     },
     {
-      "type":"send_mail",
-      "command":"alert/send_mail",
+      "channel_name":"channel1",
+      "command":"bin/alert-channel1.sh",
       "interval":300
     }
   ]

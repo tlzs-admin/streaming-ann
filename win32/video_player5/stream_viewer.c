@@ -234,8 +234,9 @@ GtkWidget * create_options_menu(struct stream_viewer * viewer)
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), separator);
 	GtkWidget *detection_mode = gtk_check_menu_item_new_with_label(_("detection mode"));
 	gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(detection_mode), stream->detection_mode);
-	g_signal_connect(detection_mode, "toggled", G_CALLBACK(on_check_menu_toggled_int_value), &stream->detection_mode);
+	viewer->detection_mode_handler = g_signal_connect(detection_mode, "toggled", G_CALLBACK(on_check_menu_toggled_int_value), &stream->detection_mode);
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), detection_mode);
+	viewer->detection_mode_menu = detection_mode;
 
 	separator = gtk_separator_menu_item_new();
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), separator);

@@ -21,20 +21,23 @@ enum alert_type
 struct alert_data
 {
 	void *priv;
-	enum alert_type type;
+	char *channel_name;
 	char *command;
 	
-	int (*notify)(struct alert_data *alert);
+	int (*notify)(struct alert_data *alert, const char *source, int64_t timestamp);
 	// private data
 	int64_t interval;
+	int64_t timestamp;
 	int64_t expires_at;
 	pthread_mutex_t mutex;
 	int busy;
 	int quit;
 	int err_code;
 	void *exit_code;
+	
+	char *source; // sender name
 };
-struct alert_data *alert_data_new(enum alert_type type, const char *command);
+struct alert_data *alert_data_new(const char *channel_name, const char *command);
 void alert_data_free(struct alert_data *alert);
 
 

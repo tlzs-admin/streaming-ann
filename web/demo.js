@@ -7,6 +7,19 @@ const fps = 5;
 var channel = null;
 var selected_item = null;
 
+const alert_file_url = "audio/alert.mp3";
+var alert_flags = 0;
+function play_alert_sound()
+{
+	console.log(Date.now() + ": " + alert_file_url + ': flags=' + alert_flags);
+	if(!alert_flags) {
+		let audio = new Audio(alert_file_url);
+		audio.onplay = () => { alert_flags = 1; };
+		audio.onended = () => { alert_flags = 0; } ;
+		audio.play();
+	}
+}
+
 var toolbar1 = {
 	view: "toolbar", padding: 3,
 	
@@ -14,10 +27,12 @@ var toolbar1 = {
 	elements: [
 		{ view: "icon", icon: "mdi mdi-menu", click: function() { 
 				$$("$sidebar1").toggle(); 
+				resize_frame();
 			}
 		},
 		{ view: "label", id: "app_title", label: document.title },
 		{},
+		{ view: "button", id: "test_alert", click: play_alert_sound, value: "alert" },
 		{ view: "icon", id: "bell", badge: 0, icon: "mdi mdi-bell" }
 	]
 	

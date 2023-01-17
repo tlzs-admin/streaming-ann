@@ -332,11 +332,13 @@ int smtp_mail_info_serialize(struct smtp_mail_info *mail, struct auto_buffer *pa
 		push_list_fields(payload, list);
 	}
 	
+	/**
 	if(mail->bcc_list->length > 0) {
 		list = mail->bcc_list;
 		auto_buffer_push(payload, "Bcc: ", 5);
 		push_list_fields(payload, list);
 	}
+	**/
 #undef push_list_fields
 
 	int rnd_value = rand() % 1000;

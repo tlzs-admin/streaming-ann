@@ -35,6 +35,11 @@
 #include <getopt.h>
 
 #include <curl/curl.h>
+#include <libsoup/soup.h>
+#include <json-c/json.h>
+#ifndef JSON_C_TO_STRING_NOSLASHESCAPE
+#define JSON_C_TO_STRING_NOSLASHESCAPE 0
+#endif
 
 #include <libgen.h>
 #include <pthread.h>
@@ -42,6 +47,7 @@
 #include "utils.h"
 #include "app.h"
 #include "shell.h"
+#include "shell_private.h"
 
 #include "ai-engine.h"
 #include "video_streams.h"
@@ -329,6 +335,12 @@ static int app_parse_args(struct app_context *app, int argc, char **argv)
 	return 0;
 }
 
+static guint on_proxy_config(struct streaming_proxy_context *proxy, 
+	SoupMessage *msg, 
+	const char *path, 
+	GHashTable *query, SoupClientContext *client, 
+	void *config_ctx);
+
 static int app_init(struct app_context *app, int argc, char **argv)
 {
 	gst_init(&argc, &argv);
@@ -349,6 +361,8 @@ static int app_init(struct app_context *app, int argc, char **argv)
 	}
 	struct streaming_proxy_context *proxy = streaming_proxy_context_init(NULL, jproxy, app);
 	assert(proxy);
+	proxy->on_config = on_proxy_config;
+	proxy->config_ctx = app;
 	priv->proxy = proxy;
 	
 	app->reload_config(app, NULL);
@@ -357,6 +371,7 @@ static int app_init(struct app_context *app, int argc, char **argv)
 	
 	rc = priv->shell->init(priv->shell, jconfig);
 	
+	streaming_proxy_run(proxy, 1);
 	return rc;
 }
 
@@ -430,3 +445,221 @@ struct shell_context *app_get_shell(struct app_context *app)
 	return priv->shell;
 }
 
+
+
+static int on_proxy_config_get(struct streaming_proxy_context *proxy, 
+	SoupMessage *msg, 
+	const char *path, 
+	GHashTable *query, SoupClientContext *client, 
+	struct app_context *app)
+{
+	struct app_private *priv = app->priv;
+	guint status = SOUP_STATUS_BAD_REQUEST;
+	
+	if(NULL == proxy->config_path) return status;
+	
+	ssize_t cb_base_path = strlen(proxy->config_path);
+	if(cb_base_path < 1 || strncasecmp(proxy->config_path, path, cb_base_path) != 0) return status;
+	
+	const char *command = path + cb_base_path;
+	if(command[0] != '/') return SOUP_STATUS_NOT_FOUND;
+	++command;
+	
+	json_object *jconfig = app->jconfig;
+	assert(jconfig);
+	
+	static const char *response_fmt = "{ \"channel_name\": \"%s\", \"detection_mode\": %d }\n";
+	char response_buf[4096] = "";
+	const char *response = NULL;
+	ssize_t cb_response = 0;
+		
+	if(strcasecmp(command, "list-all") == 0) {
+		response = json_object_to_json_string_ext(jconfig, JSON_C_TO_STRING_PRETTY | JSON_C_TO_STRING_NOSLASHESCAPE);
+		if(response) cb_response = strlen(response);
+		status = SOUP_STATUS_OK;
+	}else {
+		if(priv->num_streams <= 0) {
+			return SOUP_STATUS_NOT_IMPLEMENTED;
+		}
+		
+		// command == channel_name
+		for(ssize_t i = 0; i < priv->num_streams; ++i) 
+		{
+			struct video_stream *stream = &priv->streams[i];
+			if(NULL == stream->channel_name) continue;
+			
+			
+			if(strcasecmp(command, stream->channel_name) == 0) {
+				cb_response = snprintf(response_buf, sizeof(response_buf), 
+					response_fmt, 
+					stream->channel_name, (int)stream->detection_mode);
+					
+				response = response_buf;
+				if(cb_response > 0) status = SOUP_STATUS_OK;
+				break;
+			}
+		}
+	}
+	if(response && cb_response > 0) {
+		soup_message_set_response(msg, "application/json", SOUP_MEMORY_COPY, response, cb_response);
+	}
+	return status;
+}
+
+gboolean shell_update_detection_mode_menu(gpointer user_data)
+{
+	struct video_stream *stream = user_data;
+	if(NULL == stream) return G_SOURCE_REMOVE;
+		
+	struct shell_context *shell = app_get_shell(stream->app);
+	assert(shell && shell->priv);
+	struct shell_private * priv = shell->priv;
+	struct stream_viewer * viewer = NULL;
+	
+	for(int i = 0; i < priv->num_streams; ++i) {
+		if(priv->views[i].stream != stream) continue;
+		viewer = &priv->views[i];
+		break;
+	}
+	
+	if(viewer && viewer->detection_mode_handler && viewer->detection_mode_menu) {
+		g_signal_handler_block(viewer->detection_mode_menu, viewer->detection_mode_handler);
+		gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(viewer->detection_mode_menu), stream->detection_mode);
+		g_signal_handler_unblock(viewer->detection_mode_menu, viewer->detection_mode_handler);
+	}
+	return G_SOURCE_REMOVE;
+}
+
+
+static int on_proxy_config_post(struct streaming_proxy_context *proxy, 
+	SoupMessage *msg, 
+	const char *path, 
+	GHashTable *query, SoupClientContext *client, 
+	struct app_context *app)
+{
+	guint status = SOUP_STATUS_BAD_REQUEST;
+	struct app_private *priv = app->priv;
+	if(priv->num_streams <= 0) return status;
+	
+	ssize_t cb_base_path = strlen(proxy->config_path);
+	if(cb_base_path < 1 || strncasecmp(proxy->config_path, path, cb_base_path) != 0) return status;
+	
+	const char *command = path + cb_base_path;
+	if(command[0] != '/') return SOUP_STATUS_NOT_FOUND;
+	++command;
+	
+	struct video_stream *stream = NULL;
+	
+	// command == channel_name
+	for(ssize_t i = 0; i < priv->num_streams; ++i) 
+	{
+		if(NULL == priv->streams[i].channel_name) continue;
+	
+		if(strcasecmp(command, priv->streams[i].channel_name) == 0) {
+			stream = &priv->streams[i];
+			break;
+		}
+	}
+	
+	if(NULL == stream) return SOUP_STATUS_NOT_FOUND;
+	static const char *response_fmt = "{ "
+		"\"err_code\": %d, "
+		"\"channel_name\": \"%s\", "
+		"\"field\": \"detection_mode\", " 
+		"\"current_value\": %d, "
+		"\"status\": \"%s\", "
+		"\"description\": \"%s\" "
+		"}\n";
+	
+	char response_buf[4096] = "";
+	ssize_t cb_response = 0;
+	const char *key = "detection_mode";
+	const char *sz_detection_mode = NULL;
+	
+	int detection_mode = -1;
+	if(query) sz_detection_mode = g_hash_table_lookup(query, key);
+	
+	if(sz_detection_mode && sz_detection_mode[0]) detection_mode = atoi(sz_detection_mode);
+	else if(msg->request_body->length > 0) {
+		json_tokener *jtok = json_tokener_new();
+		assert(jtok);
+		json_object *jrequest = json_tokener_parse_ex(jtok, msg->request_body->data, msg->request_body->length);
+		enum json_tokener_error jerr = json_tokener_get_error(jtok);
+		json_tokener_free(jtok);
+		
+		if(jerr != json_tokener_success || NULL == jrequest) {
+			if(jrequest) json_object_put(jrequest);
+			
+			cb_response = snprintf(response_buf, sizeof(response_buf), response_fmt,
+				jerr,
+				stream->channel_name, 
+				stream->detection_mode,
+				"NG", json_tokener_error_desc(jerr));
+			soup_message_set_response(msg, "application/json", SOUP_MEMORY_COPY, response_buf, cb_response);
+			return status;
+		}
+		
+
+		detection_mode = json_get_value_default(jrequest, int, detection_mode, -1);
+		json_object_put(jrequest);	
+	}
+	
+	if(detection_mode < 0) {
+		cb_response = snprintf(response_buf, sizeof(response_buf), response_fmt,
+			-1,
+			stream->channel_name, 
+			stream->detection_mode,
+			"NG", "invalid request mode");
+		soup_message_set_response(msg, "application/json", SOUP_MEMORY_COPY, response_buf, cb_response);
+		return status;
+	}
+	
+	if(detection_mode == stream->detection_mode) {
+		cb_response = snprintf(response_buf, sizeof(response_buf), response_fmt,
+			0,
+			stream->channel_name, 
+			stream->detection_mode,
+			"WARNING", "mode unchanged");
+		soup_message_set_response(msg, "application/json", SOUP_MEMORY_COPY, response_buf, cb_response);
+		return SOUP_STATUS_ACCEPTED;
+	}
+	
+	stream->detection_mode = detection_mode;
+	g_idle_add(shell_update_detection_mode_menu, stream);
+	
+	cb_response = snprintf(response_buf, sizeof(response_buf), response_fmt,
+		0,
+		stream->channel_name, 
+		stream->detection_mode,
+		"OK", "");
+	soup_message_set_response(msg, "application/json", SOUP_MEMORY_COPY, response_buf, cb_response);
+	return SOUP_STATUS_ACCEPTED;
+}
+static guint on_proxy_config(struct streaming_proxy_context *proxy, 
+	SoupMessage *msg, 
+	const char *path, 
+	GHashTable *query, SoupClientContext *client, 
+	void *config_ctx)
+{
+	guint status = SOUP_STATUS_FORBIDDEN;
+	struct app_context *app = proxy->config_ctx?proxy->config_ctx:proxy->user_data;
+	assert(app && app->priv);
+
+	SoupMessageHeaders * response_headers = msg->response_headers;
+	soup_message_headers_append(response_headers, "Access-Control-Allow-Origin", "*");
+		
+	if(msg->method == SOUP_METHOD_OPTIONS) { // return CORS Headers
+		soup_message_headers_append(response_headers, "Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE, PUT");
+		soup_message_headers_append(response_headers, "Access-Control-Allow-Headers", "Origin, Content-Type, Content-Length, Authorization");
+		soup_message_headers_append(response_headers, "Access-Control-Max-Age", "86400");
+		return SOUP_STATUS_NO_CONTENT;
+	}
+	
+	if(msg->method == SOUP_METHOD_GET) {
+		return on_proxy_config_get(proxy, msg, path, query, client, app);
+	}
+	if(msg->method == SOUP_METHOD_POST) {
+		return on_proxy_config_post(proxy, msg, path, query, client, app);
+	}
+	return status;
+}

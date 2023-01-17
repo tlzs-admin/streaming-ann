@@ -254,7 +254,7 @@ static int video_stream_load_config(struct video_stream *stream, json_object *js
 	
 	// parse alert server urls
 	json_object *jalert_servers = NULL;
-	ok = json_object_object_get_ex(jstream, "alert_servers", &jalert_servers);
+	ok = json_object_object_get_ex(jstream, "alert_server_urls", &jalert_servers);
 	if(ok && jalert_servers) {
 		ssize_t num_alert_servers = json_object_array_length(jalert_servers);
 		if(num_alert_servers > MAX_ALERT_SERVERS_COUNT) num_alert_servers = MAX_ALERT_SERVERS_COUNT;
