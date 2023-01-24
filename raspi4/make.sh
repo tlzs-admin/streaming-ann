@@ -37,6 +37,16 @@ case "${target}" in
 			-o alert-server src/alert-server.c src/alert-service.c \
 			-lm -lpthread -lcurl -ljson-c $(pkg-config --cflags --libs libsoup-2.4)
 		;;
+	camera-switch)
+		gcc -std=gnu99 -D_GNU_SOURCE -g -Wall -D_DEBUG \
+			-Iinclude -I../include \
+			-pthread \
+			-o camera-switch \
+			src/camera-switch.c \
+			-lm -lpthread -ljson-c -lrt \
+			$(pkg-config --cflags --libs libsoup-2.4) \
+			$(pkg-config --cflags --libs gstreamer-1.0 gstreamer-app-1.0) 
+		;;
 	*)
 		exit 1
 		;;

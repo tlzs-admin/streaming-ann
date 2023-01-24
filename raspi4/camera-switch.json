@@ -1,0 +1,26 @@
+{
+	"server_url":"http://localhost:8800/default/channel0",
+	"switch_interval": 5, // seconds
+	"webservice_port": 8080,
+	"schedules": [
+		{
+			"weekday_masks": [ false, true, true, true, true, true, false ],
+			"time_ranges": [
+				"06:00-09:00",
+				"16:00-17:00",
+			]
+		}
+	],
+	"active_schedule_index": 0,
+	"cameras":[
+		{
+		  "name":"local",
+		  "uri":"/dev/video0",
+		}
+		,{
+			"name":"video1",
+			"uri":"/tmp/1.mp4",
+			"auto_play":1
+		}
+	]
+}
